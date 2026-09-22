@@ -1,0 +1,244 @@
+{
+  "name": "ce-plugin",
+  "description": "Public gold set built from the Compound Engineering plugin's own learnings under docs/solutions/. Each positive case is a work context phrased the way a skill would phrase it, never the learning's title, with the learning (or learnings) a person doing that work should have read. Labels are positive-only: a hit that is not listed is unjudged, not wrong. Negative cases describe work the corpus does not cover and expect nothing_relevant.",
+  "corpus": {
+    "git": "https://github.com/EveryInc/compound-engineering-plugin.git",
+    "ref": "c152896f1cda13548fc1a05b2aff88caf8ae8dba",
+    "docs_root": "docs"
+  },
+  "floor": { "macro_recall": 0.85 },
+  "cases": [
+    {
+      "id": "exit-code-for-expected-empty-result",
+      "query": { "activity": "Add a distinct exit code so a caller can tell an expected empty result from a real read failure in the job runner's result command" },
+      "expected": ["docs/solutions/agent-friendly-cli-principles.md"],
+      "note": "No applies_when on this learning; recall must come from title and tags."
+    },
+    {
+      "id": "windows-detached-job-runner",
+      "query": { "activity": "Port the detached peer job runner to native Windows without child processes surviving teardown", "concepts": ["process groups", "file locks"] },
+      "expected": ["docs/solutions/architecture-patterns/posix-process-supervision-on-native-windows.md"]
+    },
+    {
+      "id": "delegate-to-codex-or-implement-inline",
+      "query": { "activity": "Decide whether the planning skill should hand implementation to Codex or do it inline", "concepts": ["token cost", "delegation"] },
+      "expected": ["docs/solutions/best-practices/codex-delegation-best-practices.md"]
+    },
+    {
+      "id": "predictable-tmp-cache-read-into-prompt",
+      "query": { "activity": "Write a cache file under /tmp at a fixed path that a later agent run reads back into its prompt" },
+      "expected": ["docs/solutions/best-practices/predictable-tmp-cache-ownership-check.md"]
+    },
+    {
+      "id": "pipeline-script-language",
+      "query": { "activity": "Write a skill script that chains ffmpeg and curl with retries and has to run on the default macOS bash" },
+      "expected": ["docs/solutions/best-practices/prefer-python-over-bash-for-pipeline-scripts.md"]
+    },
+    {
+      "id": "installer-clobbers-user-symlink",
+      "query": { "activity": "Stop the installer from overwriting a user's symlinked skills directory during install and also during cleanup", "modules": ["src/targets"] },
+      "expected": ["docs/solutions/best-practices/preserve-user-content-across-all-destructive-paths.md"]
+    },
+    {
+      "id": "new-converter-target-client-rendered-docs",
+      "query": { "activity": "Add a converter target for a new agent platform whose plugin format docs only render client-side" },
+      "expected": ["docs/solutions/conventions/antigravity-target-empirical-format-verification.md"]
+    },
+    {
+      "id": "python3-hardcoded-in-skill-prose",
+      "query": { "activity": "A bundled Python script fails for a Windows contributor because the SKILL.md tells the agent to run python3" },
+      "expected": ["docs/solutions/conventions/resolve-python-interpreter-not-python3.md"]
+    },
+    {
+      "id": "scratch-root-preamble-git-bash",
+      "query": { "activity": "Write a test proving the scratch-root shell preamble works under Git Bash on Windows, not just that the prose contains it" },
+      "expected": ["docs/solutions/conventions/shell-primitives-must-be-executed-not-shape-checked.md"]
+    },
+    {
+      "id": "verify-attributed-byte-budget",
+      "query": { "activity": "A test enforces an 8000 byte skill prompt budget attributed to Codex; check where that number comes from before tightening it" },
+      "expected": ["docs/solutions/conventions/verify-externally-attributed-constraints-at-the-source.md"]
+    },
+    {
+      "id": "agents-md-or-contributor-doc",
+      "query": { "activity": "Decide whether a note about the new CI layout belongs in the root AGENTS.md or in a contributor document" },
+      "expected": ["docs/solutions/developer-experience/always-on-agents-md.md"]
+    },
+    {
+      "id": "bun-test-exact-timeouts",
+      "query": { "activity": "bun test files fail with exact-timeout errors after one spawnSync child exit goes missing under parallel workers" },
+      "expected": ["docs/solutions/developer-experience/bun-parallel-worker-loses-subprocess-exit.md"],
+      "note": "Bug-track learning without applies_when; symptoms carry the match."
+    },
+    {
+      "id": "codex-worktree-skill-development",
+      "query": { "activity": "Test unreleased skill changes from a linked worktree in Codex instead of the marketplace plugin" },
+      "expected": ["docs/solutions/developer-experience/codex-local-skill-development-workflow.md"]
+    },
+    {
+      "id": "fsmonitor-slow-flaky-suite",
+      "query": { "activity": "The subprocess-heavy test suite runs much slower and flakes on one machine that has git fsmonitor enabled globally" },
+      "expected": ["docs/solutions/developer-experience/global-fsmonitor-makes-the-suite-slow-and-flaky.md"]
+    },
+    {
+      "id": "grok-camelcase-structured-output",
+      "query": { "activity": "Grok returns a camelCase structuredOutput field that our cross-model peer acceptance check lets through" },
+      "expected": [
+        "docs/solutions/integration-issues/grok-camelcase-structuredoutput-and-nonfinal-peer-position.md",
+        "docs/solutions/integration-issues/portable-structured-output-schemas-across-model-clis.md"
+      ]
+    },
+    {
+      "id": "plugin-json-schema-field",
+      "query": { "activity": "Set the $schema field on the root plugin.json for Agent Plugins" },
+      "expected": ["docs/solutions/integrations/agent-plugins-schema-is-a-host-routing-switch.md"]
+    },
+    {
+      "id": "model-field-across-targets",
+      "query": { "activity": "Normalize the model field when converting agent definitions to the OpenCode, Droid, and Copilot targets" },
+      "expected": ["docs/solutions/integrations/cross-platform-model-field-normalization.md"]
+    },
+    {
+      "id": "subagent-fan-out-rules",
+      "query": { "activity": "Write the fan-out rules for dispatching reviewer subagents so they run the same on Claude Code and Codex without serializing" },
+      "expected": ["docs/solutions/skill-design/anti-poll-scope-and-async-subagent-dispatch.md"]
+    },
+    {
+      "id": "read-mode-flag-cross-harness",
+      "query": { "activity": "A skill needs to read a mode: flag from the user's invocation and must also work on Cursor and Gemini" },
+      "expected": ["docs/solutions/skill-design/arguments-token-is-claude-only-in-skill-bodies.md"]
+    },
+    {
+      "id": "make-it-automatic-section",
+      "query": { "activity": "Add a Make It Automatic section to the ce-compound docs page telling agents to invoke it on their own" },
+      "expected": ["docs/solutions/skill-design/authoring-auto-invoke-standing-instructions.md"]
+    },
+    {
+      "id": "cheaper-review-peer-model",
+      "query": { "activity": "Switch the adversarial review peer to a cheaper model tier and prove it still catches the same bugs" },
+      "expected": ["docs/solutions/skill-design/benchmark-review-peer-model-and-reasoning-tier.md"]
+    },
+    {
+      "id": "auto-handoff-needs-bootstrap-tokens",
+      "query": { "activity": "A skill hands off to ce-babysit-pr automatically and the callee needs bootstrap tokens minted before its first command" },
+      "expected": ["docs/solutions/skill-design/context-absent-skill-handoff-needs-pinned-invocation.md"]
+    },
+    {
+      "id": "peer-cli-outlives-tool-call",
+      "query": { "activity": "A skill's bundled script launches a peer model CLI that runs longer than one harness tool call allows" },
+      "expected": ["docs/solutions/skill-design/detached-job-lifecycle-for-delegated-work.md"]
+    },
+    {
+      "id": "dispatch-script-crash-fallback",
+      "query": { "activity": "Decide what the skill does when the deterministic dispatch script that enforces the egress allowlist crashes" },
+      "expected": ["docs/solutions/skill-design/dispatch-script-failure-degrade-outcome-not-boundary.md"]
+    },
+    {
+      "id": "eyes-reaction-as-liveness",
+      "query": { "activity": "The watch loop treats the reviewer bot's eyes reaction as proof it is still reviewing and waits forever" },
+      "expected": ["docs/solutions/skill-design/liveness-judgment-belongs-to-the-agent.md"]
+    },
+    {
+      "id": "persona-cites-owasp-fowler",
+      "query": { "activity": "Tune the reviewer persona prompts to cite OWASP and Fowler code smells as detection conditions" },
+      "expected": ["docs/solutions/skill-design/named-frameworks-with-detection-conditions-for-review-personas.md"]
+    },
+    {
+      "id": "packs-into-learnings-persona",
+      "query": { "activity": "Wire Compound Packs into the learnings persona that ce-code-review already spawns conditionally", "concepts": ["spawn gate", "synthesis"] },
+      "expected": ["docs/solutions/skill-design/new-knowledge-source-re-derives-persona-gate-and-route.md"]
+    },
+    {
+      "id": "prove-prose-change-moved-behavior",
+      "query": { "activity": "Prove that a SKILL.md prose edit changed the agent's behavior rather than just not regressing it" },
+      "expected": [
+        "docs/solutions/skill-design/paired-old-vs-new-injection-skill-evals.md",
+        "docs/solutions/skill-design/strong-models-mask-defensive-skill-fixes.md"
+      ]
+    },
+    {
+      "id": "menu-rendered-then-nothing-happens",
+      "query": { "activity": "ce-plan renders its post-generation menu and then stops without running the option the user picked" },
+      "expected": ["docs/solutions/skill-design/post-menu-routing-belongs-inline.md"]
+    },
+    {
+      "id": "shrink-skill-under-codex-budget",
+      "query": { "activity": "Rewrite the babysit skill's SKILL.md to fit under the Codex 8000 byte prompt budget without losing its rules" },
+      "expected": ["docs/solutions/skill-design/size-driven-skill-restructure.md"]
+    },
+    {
+      "id": "fork-pr-workflow-approval-gate",
+      "query": { "activity": "Handle the fork PR case where GitHub Actions waits for a maintainer to approve the workflow run before CI starts" },
+      "expected": ["docs/solutions/skill-design/watch-loops-need-a-blocked-external-terminal-state.md"]
+    },
+    {
+      "id": "parallel-subagents-worktrees-or-shared",
+      "query": { "activity": "Decide whether parallel ce-work subagents need separate worktrees or can share the checkout" },
+      "expected": ["docs/solutions/skill-design/workspace-isolation-is-escalation-not-entry-fee.md"]
+    },
+    {
+      "id": "did-the-pack-change-what-shipped",
+      "query": { "activity": "Benchmark whether declaring a Compound Pack changed what the agent shipped, across two models" },
+      "expected": ["docs/solutions/workflow/measuring-a-packs-effect-needs-non-inferable-rules.md"]
+    },
+    {
+      "id": "review-byte-duplicated-script",
+      "query": { "activity": "Review a change to peer-job-runner.py, which is byte-duplicated into six skills" },
+      "expected": ["docs/solutions/workflow/reviewing-byte-duplicated-shared-assets.md"]
+    },
+    {
+      "id": "small-diff-fast-path-for-review",
+      "query": { "activity": "Add a fast path so small low-risk diffs skip most of the code review roster" },
+      "expected": ["docs/solutions/skill-design/review-cost-is-in-entering-the-spine-not-the-findings.md"]
+    },
+    {
+      "id": "release-please-wrong-version",
+      "query": { "activity": "release-please opened a release PR with the wrong version after someone bumped the version by hand" },
+      "expected": ["docs/solutions/workflow/release-please-version-drift-recovery.md"]
+    },
+    {
+      "id": "idle-timeout-streaming-peer",
+      "query": { "activity": "Choose the idle timeout for a streaming cursor-agent peer route whose output arrives in bursts" },
+      "expected": [
+        "docs/solutions/skill-design/quiet-interval-floors-for-streaming-peer-routes.md",
+        "docs/solutions/skill-design/cli-output-buffering-for-progress-detection.md"
+      ]
+    },
+    {
+      "id": "neg-tls-certificate",
+      "query": { "activity": "Rotate the TLS certificate on the production load balancer before it expires" },
+      "expected": [],
+      "negative": true
+    },
+    {
+      "id": "neg-stripe-refund-webhook",
+      "query": { "activity": "Add a Stripe webhook handler that records refunded charges against the customer's invoice" },
+      "expected": [],
+      "negative": true
+    },
+    {
+      "id": "neg-postgres-covering-index",
+      "query": { "activity": "Speed up the invoices report query in Postgres with a covering index" },
+      "expected": [],
+      "negative": true
+    },
+    {
+      "id": "neg-onboarding-email-drip",
+      "query": { "activity": "Design the onboarding email drip sequence for new newsletter subscribers" },
+      "expected": [],
+      "negative": true
+    },
+    {
+      "id": "neg-core-data-swiftdata",
+      "query": { "activity": "Migrate the iOS app's Core Data store to SwiftData" },
+      "expected": [],
+      "negative": true
+    },
+    {
+      "id": "neg-terraform-vpc",
+      "query": { "activity": "Set up Terraform for a new VPC with private subnets and a NAT gateway" },
+      "expected": [],
+      "negative": true
+    }
+  ]
+}

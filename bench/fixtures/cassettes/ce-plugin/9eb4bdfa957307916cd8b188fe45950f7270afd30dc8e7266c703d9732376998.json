@@ -1,0 +1,21 @@
+{
+  "request_hash": "9eb4bdfa957307916cd8b188fe45950f7270afd30dc8e7266c703d9732376998",
+  "status": 200,
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "relevant": {
+        "type": "noul",
+        "noul": 0.35
+      }
+    },
+    "usage": {
+      "input_tokens": 1025,
+      "output_tokens": 22
+    }
+  },
+  "meta": {
+    "model": "jev-latest",
+    "question_count": 1
+  }
+}
