@@ -29,7 +29,7 @@ export function cassetteFetch(
     const request = parseJson(bodyText);
     const hash = requestHash(request);
     const file = join(dir, `${hash}.json`);
-    if (mode === "replay") {
+    if (mode === "replay" || (mode === "auto" && existsSync(file))) {
       if (!existsSync(file)) {
         return new Response(JSON.stringify({ error: CASSETTE_MISS_MARKER, hash, dir }), {
           status: 404,

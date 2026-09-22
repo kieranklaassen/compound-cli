@@ -115,7 +115,9 @@ Options
   --threshold <0..1>        Relevance threshold (default 0.5)
   --sweep <p,p,...>         Re-score the same judgments at several thresholds
   --frontmatter-only        Skip tier two
-  --enforce-floor           Exit 1 when macro recall is below the cases file floor
+  --enforce-floor           Exit 1 when a floor in the cases file is not met
+  --jobs <n>                Cases to run concurrently (default 1)
+  --precision-floor <p>     Report the best recall whose precision lower bound meets p
   --json                    Full result as JSON
   --out <file>              Also write the JSON result to a file
   --model <name>            TypeSafe model (default jev-latest)

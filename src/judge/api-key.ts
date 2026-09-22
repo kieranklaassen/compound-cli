@@ -5,11 +5,12 @@ export const API_KEY_VARIABLE = "TYPESAFE_API_KEY";
 export const CASSETTE_MODE_VARIABLE = "COMPOUND_CASSETTE_MODE";
 export const CASSETTE_DIR_VARIABLE = "COMPOUND_CASSETTE_DIR";
 
-export type CassetteMode = "off" | "record" | "replay";
+/** `auto` replays a recording when one exists and records a live answer when it does not. */
+export type CassetteMode = "off" | "record" | "replay" | "auto";
 
 export function cassetteMode(env: Env): CassetteMode {
   const raw = env[CASSETTE_MODE_VARIABLE]?.trim().toLowerCase();
-  if (raw === "record" || raw === "replay") return raw;
+  if (raw === "record" || raw === "replay" || raw === "auto") return raw;
   return "off";
 }
 

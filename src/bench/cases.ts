@@ -9,6 +9,10 @@ export type BenchQuery = {
   domains?: string[];
   modules?: string[];
   paths?: string[];
+  /** A plan or brainstorm file, relative to the corpus root. */
+  plan?: string;
+  /** A unified diff file, relative to the cases file. */
+  diff?: string;
 };
 
 export type BenchCase = {

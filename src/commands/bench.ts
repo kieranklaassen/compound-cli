@@ -5,6 +5,7 @@ import {
   type OptionSpecs,
   parseCommandArgs,
   ROOT_OPTION,
+  requireInteger,
   requireProbability,
 } from "../args.ts";
 import { type BenchCase, type CasesFile, readCasesFile } from "../bench/cases.ts";
@@ -13,8 +14,10 @@ import {
   type BenchReport,
   type CaseRun,
   type CaseScore,
+  fBeta,
   floorFailures,
   latencyStats,
+  recallAtPrecisionFloor,
   scoreCase,
 } from "../bench/score.ts";
 import type { CeConfig } from "../config/ce-config.ts";
@@ -29,6 +32,7 @@ import { BENCH_HELP } from "../help.ts";
 import { buildWorkState } from "../input/work-state.ts";
 import { CASSETTE_DIR_VARIABLE, cassetteMode } from "../judge/api-key.ts";
 import { judgeFromEnv } from "../judge/client.ts";
+import { Semaphore } from "../judge/semaphore.ts";
 import { resolveJudgeSettings } from "./find-options.ts";
 
 const BENCH_OPTIONS = {
@@ -47,6 +51,8 @@ const BENCH_OPTIONS = {
   "excerpt-chars": { type: "string" },
   model: { type: "string" },
   only: { type: "string", multiple: true },
+  jobs: { type: "string" },
+  "precision-floor": { type: "string" },
 } as const satisfies OptionSpecs;
 
 /** Corpus clones may take longer than a skill call; give them two minutes. */
@@ -69,8 +75,15 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     .filter(Boolean)
     .map((s) => requireProbability("sweep", s, 0));
   const only = new Set(v.only ?? []);
+  const jobs = requireInteger("jobs", v.jobs, 1);
+  const precisionFloor =
+    v["precision-floor"] === undefined
+      ? undefined
+      : requireProbability("precision-floor", v["precision-floor"], 0);
 
-  const judge = judgeFromEnv(ctx.env, { model: settings.model, parallel: settings.parallel });
+  // The key check runs before any corpus read (plan R28); each case then gets
+  // its own judge so usage is attributed per case even when cases run concurrently.
+  judgeFromEnv(ctx.env, { model: settings.model, parallel: settings.parallel });
   const workspace = benchWorkspace(file, ctx, v.root);
   const cases = only.size ? file.cases.filter((c) => only.has(c.id)) : file.cases;
   if (cases.length === 0) throw new UsageError("no cases selected");
@@ -91,40 +104,54 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
       `cassettes were recorded at threshold ${manifest.threshold}; this run scores at ${settings.threshold} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
     );
   }
-  for (const benchCase of cases) {
-    const before = judge.usage.snapshot();
-    const started = performance.now();
-    const run = await runFind({
-      workspace,
-      state: await buildWorkState(toChannels(benchCase), ctx),
-      judge,
-      settings,
-      filters: NO_FILTERS,
-      mode: "find",
-      corpus,
-    });
-    const after = judge.usage.snapshot();
-    for (const warning of run.result.warnings) warnings.add(warning);
-    const caseRun: CaseRun = {
-      benchCase,
-      run,
-      corpusPaths,
-      wall_ms: Math.round(performance.now() - started),
-      requests: after.requests - before.requests,
-      input_tokens: after.input_tokens - before.input_tokens,
-      estimated_usd: Number((after.estimated_usd - before.estimated_usd).toFixed(8)),
-    };
-    runs.push(caseRun);
-    if (!v.json) ctx.stderr(`${progressLine(caseRun, settings.threshold)}\n`);
-  }
+  const gate = new Semaphore(jobs);
+  const total = { requests: 0, input_tokens: 0, estimated_usd: 0, model: null as string | null };
+  await Promise.all(
+    cases.map((benchCase, index) =>
+      gate.run(async () => {
+        const judge = judgeFromEnv(ctx.env, { model: settings.model, parallel: settings.parallel });
+        const started = performance.now();
+        const run = await runFind({
+          workspace,
+          state: await buildWorkState(toChannels(benchCase, workspace.repoRoot, casesPath), ctx),
+          judge,
+          settings,
+          filters: NO_FILTERS,
+          mode: "find",
+          corpus,
+        });
+        const usage = judge.usage.snapshot();
+        for (const warning of run.result.warnings) warnings.add(warning);
+        const caseRun: CaseRun = {
+          benchCase,
+          run,
+          corpusPaths,
+          wall_ms: Math.round(performance.now() - started),
+          requests: usage.requests,
+          input_tokens: usage.input_tokens,
+          estimated_usd: usage.estimated_usd,
+        };
+        runs[index] = caseRun;
+        total.requests += usage.requests;
+        total.input_tokens += usage.input_tokens;
+        total.estimated_usd += usage.estimated_usd;
+        total.model = usage.model ?? total.model;
+        if (!v.json) ctx.stderr(`${progressLine(caseRun, settings.threshold)}\n`);
+      }),
+    ),
+  );
 
   const scores = runs.map((r) => scoreCase(r, settings.threshold));
-  const usage = judge.usage.snapshot();
+  const usage = { ...total, estimated_usd: Number(total.estimated_usd.toFixed(8)) };
+  const operating = aggregate(scores, settings.threshold);
   const report: BenchReport = {
     schema_version: 1,
     name: file.name,
     threshold: settings.threshold,
-    aggregate: aggregate(scores, settings.threshold),
+    aggregate: operating,
+    f05: fBeta(operating.precision_lower_bound, operating.micro_recall),
+    recall_at_precision_floor:
+      precisionFloor === undefined ? null : recallAtPrecisionFloor(runs, precisionFloor),
     sweep: sweep.map((t) =>
       aggregate(
         runs.map((r) => scoreCase(r, t)),
@@ -210,7 +237,7 @@ function benchWorkspace(
   return { repoRoot, config, git };
 }
 
-function toChannels(benchCase: BenchCase) {
+function toChannels(benchCase: BenchCase, corpusRoot: string, casesPath: string) {
   const q = benchCase.query;
   return {
     activity: q.activity,
@@ -219,8 +246,8 @@ function toChannels(benchCase: BenchCase) {
     domains: q.domains ?? [],
     modules: q.modules ?? [],
     paths: q.paths ?? [],
-    diffPath: undefined,
-    planPath: undefined,
+    diffPath: q.diff === undefined ? undefined : resolve(dirname(casesPath), q.diff),
+    planPath: q.plan === undefined ? undefined : resolve(corpusRoot, q.plan),
     docPath: undefined,
   };
 }
@@ -258,6 +285,15 @@ export function renderBench(report: BenchReport): string {
     `negatives correct      ${pct(a.negatives_correct)}   (${a.negative_cases} negative cases)`,
   );
   lines.push(`perfect cases          ${a.perfect_cases} of ${a.cases}`);
+  lines.push(`f0.5                   ${report.f05 === null ? "n/a" : report.f05.toFixed(3)}`);
+  const floored = report.recall_at_precision_floor;
+  if (floored) {
+    lines.push(
+      floored.recall === null
+        ? `recall at precision >= ${floored.precision_floor}: no threshold meets the floor`
+        : `recall at precision >= ${floored.precision_floor}: ${pct(floored.recall)} at threshold ${floored.threshold} (precision ${pct(floored.precision_lower_bound)}, negatives ${pct(floored.negatives_correct)}, f0.5 ${floored.f05})`,
+    );
+  }
   if (a.labeling_errors)
     lines.push(`labeling errors        ${a.labeling_errors} expected paths not in the corpus`);
   lines.push("");
