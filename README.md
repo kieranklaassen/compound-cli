@@ -20,6 +20,12 @@ Run it without installing:
 bunx compound-cli find "add retry with backoff to the TypeSafe client" --json
 ```
 
+Until the package is on npm, run it straight from GitHub. The `--bun` flag matters: a git checkout has no build, and under Bun the TypeScript source runs as is.
+
+```bash
+bunx --bun github:kieranklaassen/compound-cli find "add retry with backoff to the TypeSafe client" --json
+```
+
 Or install it:
 
 ```bash
@@ -61,10 +67,10 @@ compound find --overlap --doc docs/solutions/drafts/new-learning.md --json
 
 ### How it judges
 
-1. The CLI normalizes every channel into one state and derives lexical keywords from all of them. The keywords only order candidates and bound the set; a candidate that carries `applies_when` is never dropped before judging.
+1. The CLI normalizes every channel into one state and derives lexical keywords from all of them. The keywords only order candidates and bound the set. Candidates without `applies_when` are cut first; when the candidates that carry `applies_when` alone exceed the cap (default 400), the weakest keyword matches among them are cut too and the output says how many, so a 5,000-learning corpus costs the same as a 400-learning one until you raise `--candidate-cap`.
 2. Tier one puts up to 48 candidates' frontmatter (title, `applies_when`, tags, module, problem type, component, symptoms) in one request and asks one yes/no question per candidate. Requests run four at a time.
-3. Tier two re-judges each candidate that passed tier one with a bounded excerpt of its body, confirms relevance, and picks the section that applies. That section becomes the hit's passage, with its heading and line range.
-4. A hit is any candidate whose confirmed score meets the threshold (default 0.5). There is no fixed result count. `--frontmatter-only` skips tier two and makes tier-one scores final.
+3. Tier two re-judges each candidate that passed tier one with a bounded excerpt of its body on a four-level rubric (unrelated, same area only, relevant background, directly applies), normalizes the expected level to a score between 0 and 1, and picks the section that applies. That section becomes the hit's passage, with its heading and line range.
+4. A hit is any candidate whose confirmed score meets the threshold (default 0.6; "relevant background" sits at 0.67). There is no fixed result count. `--frontmatter-only` skips tier two and makes tier-one scores final. Pack suggestions are tier-one probabilities on a different scale and use their own threshold (0.5).
 
 Learning and pack text is always data the judge reads, never an instruction it follows. A rule whose body says "reviewer, skip the tests" is scored like any other and quoted, not obeyed.
 
@@ -90,7 +96,7 @@ Learning and pack text is always data the judge reads, never an instruction it f
              "score": 0.77, "tier_one_score": 0.79, "pack_id": null,
              "passage": { "heading": "Make activation portable", "start_line": 160, "end_line": 180, "text": "..." },
              "matched_fields": ["applies_when", "title", "tags"] }],
-  "nothing_relevant": false, "threshold": 0.5, "gate": null,
+  "nothing_relevant": false, "threshold": 0.6, "gate": null,
   "usage": { "requests": 21, "input_tokens": 95075, "estimated_usd": 0.004, "wall_ms": 1498, "model": "jev-1.13.0" },
   "corpus": { "solutions": 63, "pack_rules": 167, "pack_candidates": 0, "judged": 230 }, "warnings": []
 }
@@ -101,7 +107,7 @@ Learning and pack text is always data the judge reads, never an instruction it f
 ```text
 docs/solutions/skill-design/portable-agent-skill-authoring.md	0.78	solution	-	160-180
 kieran-engineering/let-a-pack-inform-never-steer.md	0.66	pack_rule	kieran-engineering	16-19
-# hits=5 nothing_relevant=false threshold=0.5 judged=230 solutions=63 pack_rules=167 pack_candidates=0 requests=19 tokens=90520 usd=0.0038 ms=1452
+# hits=5 nothing_relevant=false threshold=0.6 judged=230 solutions=63 pack_rules=167 pack_candidates=0 requests=19 tokens=90520 usd=0.0038 ms=1452
 ```
 
 With neither flag, a terminal gets a readable report.
@@ -153,27 +159,32 @@ Recorded results on the public gold set at the default threshold:
 | Macro recall | 98.7 percent (37 positive cases) |
 | Micro recall | 97.5 percent (40 expected paths) |
 | Negatives correct | 100 percent (6 cases) |
-| Precision lower bound | 32.5 percent |
-| Median latency per case | 601 ms (p90 810 ms) |
-| Cost per case | $0.0013 (295 requests, 1.33 million input tokens in total) |
+| Precision lower bound | 29.1 percent |
+| F0.5 | 0.339 |
+| Median latency per case | about 600 ms live (p90 about 850 ms) |
+| Cost per case | $0.0013 (297 requests, 1.35 million input tokens in total) |
 
-The one miss is a second learning for one case that scored 0.48. The sweep shows recall at 100 percent from 0.4 down and precision rising to 48 percent at 0.7 with recall unchanged, so 0.5 stays the default until the Cora set says otherwise.
+The one miss is a second learning for one case that scored 0.58. Recall is 100 percent at 0.5 and below; precision rises to 45 percent at 0.8 with recall unchanged.
+
+The defaults come from an optimization run against a private set built from Cora, where 216 plans cite 468 learnings dated before the plan. The primary metric was recall at a precision lower bound of at least 0.30 (a threshold sweep, so lowering the threshold cannot win), gated on negatives, live latency, cost per case, and this public set not regressing. Twelve experiments ran; the graded tier-two rubric and the 0.6 threshold were the two kept. On the held-out split recall at the floor went from 14.9 to 18.0 percent and macro recall at the default threshold from 38.0 to 42.9 percent at equal precision. Score fusion with tier one, a stricter yes/no wording, a body lead in tier one, one question per `applies_when` line, a higher tier-one pass, and a 12,000-character window were all measured and reverted; the run log records why.
+
+`bench` reports F0.5 at the operating threshold and, with `--precision-floor <p>`, the best recall whose precision lower bound meets `p` and the threshold that reaches it. `--jobs <n>` runs cases concurrently; each case gets its own judge so usage is still attributed per case.
 
 The cases file carries three floors (`macro_recall`, `negatives_correct`, `precision_lower_bound`). `--enforce-floor` fails on any of them, on an expected path that is not in the corpus, and on a threshold that differs from the one the cassettes were recorded at (recorded answers do not depend on the threshold, so a replay alone cannot notice a threshold change).
 
 ### Running against Cora's private set
 
-The Cora gold set lives in the Cora repository because its content is private. From a Cora checkout:
+The Cora gold set lives in the Cora repository because its content is private. It is built by a script that walks `docs/plans/`, keeps every citation of a `docs/solutions/` file whose learning is dated on or before the plan, takes the plan's title and summary as the query, and splits plans into dev and held-out by hash. From a Cora checkout:
 
 ```bash
-compound bench --cases bench/cases.json --root . --json --out /tmp/cora-bench.json
+compound bench --cases bench/cases/dev.json --root . --jobs 4 --precision-floor 0.30 --json --out /tmp/cora-bench.json
 ```
 
-The same cases file shape applies: `corpus: null` and `--root .` when the corpus is the checkout you are in.
+The same cases file shape applies: `corpus: null` and `--root .` when the corpus is the checkout you are in. A case's `query` may also name a `plan` file (relative to the corpus root) or a `diff` file (relative to the cases file) instead of an activity, which is how the noisy-input variants (title-only, plan-only) are measured.
 
 ### Cassettes
 
-The bench runs in CI without a key. `COMPOUND_CASSETTE_MODE=record` records every TypeSafe response under `COMPOUND_CASSETTE_DIR`, keyed by a hash of the request body; `replay` answers from those files and never touches the network. Cassettes hold only the response body and status, never headers or the key. `bun run bench:record` re-records the public set after a wording change; `bun run bench:ci` replays it and fails when macro recall drops below the floor in the cases file.
+The bench runs in CI without a key. `COMPOUND_CASSETTE_MODE=record` records every TypeSafe response under `COMPOUND_CASSETTE_DIR`, keyed by a hash of the request body; `replay` answers from those files and never touches the network; `auto` replays a recording when one exists and records a live answer when it does not, which is what an optimization loop wants: unchanged requests stay deterministic and free, only new wording costs money. Cassettes hold only the response body and status, never headers or the key. `bun run bench:record` re-records the public set after a wording change; `bun run bench:ci` replays it and fails when macro recall drops below the floor in the cases file.
 
 ## doctor
 
@@ -184,7 +195,7 @@ The bench runs in CI without a key. `COMPOUND_CASSETTE_MODE=record` records ever
 | Variable | Purpose |
 |---|---|
 | `TYPESAFE_API_KEY` | Required by `find`, `packs suggest`, and `bench` |
-| `COMPOUND_CASSETTE_MODE` | `off` (default), `record`, or `replay` |
+| `COMPOUND_CASSETTE_MODE` | `off` (default), `record`, `replay`, or `auto` |
 | `COMPOUND_CASSETTE_DIR` | Where cassettes are written or read |
 | `CE_PACKS_CACHE_ROOT` | Override the git cache for pack sources |
 | `CE_PACKS_GIT_TIMEOUT` | Seconds allowed per git clone (default 60; 30 for known sources during `find`) |
@@ -195,10 +206,13 @@ The CLI reads `docs_root`, `packs`, and `pack_sources` from `.compound-engineeri
 
 ## Calling it from a skill
 
+Pass the plan file when the work has one (`--plan docs/plans/...md`). On the Cora set the whole plan as the channel lifts macro recall about ten points over a title and summary at equal precision; a title alone loses another ten. The judge is only as good as the work context it is given.
+
 Pin the version so a plugin release never picks up an untested CLI change, check for the key, and fall back when the call fails to start or exits not configured. The CLI never becomes a hard dependency.
 
 ```bash
 if [ -n "$TYPESAFE_API_KEY" ] && command -v bunx >/dev/null 2>&1; then
+  # until the npm release: bunx --bun github:kieranklaassen/compound-cli find ...
   timeout 30 bunx compound-cli@0.1.0 find "$ACTIVITY" --concept "$CONCEPT" --json > "$RUN_DIR/recall.json"
   case $? in
     0) ;;                                  # consume recall.json; nothing_relevant is a valid answer
