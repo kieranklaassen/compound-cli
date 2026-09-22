@@ -6,11 +6,11 @@
     "answers": {
       "c000": {
         "type": "noul",
-        "noul": 0.43
+        "noul": 0.41
       },
       "c001": {
         "type": "noul",
-        "noul": 0.96
+        "noul": 0.95
       },
       "c002": {
         "type": "noul",
@@ -22,11 +22,11 @@
       },
       "c004": {
         "type": "noul",
-        "noul": 0.12
+        "noul": 0.11
       },
       "c005": {
         "type": "noul",
-        "noul": 0.07
+        "noul": 0.06
       },
       "c006": {
         "type": "noul",
@@ -50,7 +50,7 @@
       },
       "c011": {
         "type": "noul",
-        "noul": 0.16
+        "noul": 0.19
       },
       "c012": {
         "type": "noul",
@@ -70,15 +70,15 @@
       },
       "c016": {
         "type": "noul",
-        "noul": 0.18
+        "noul": 0.17
       },
       "c017": {
         "type": "noul",
-        "noul": 0.04
+        "noul": 0.05
       },
       "c018": {
         "type": "noul",
-        "noul": 0.08
+        "noul": 0.07
       },
       "c019": {
         "type": "noul",
@@ -94,7 +94,7 @@
       },
       "c022": {
         "type": "noul",
-        "noul": 0.07
+        "noul": 0.08
       },
       "c023": {
         "type": "noul",
@@ -126,7 +126,7 @@
       },
       "c030": {
         "type": "noul",
-        "noul": 0.06
+        "noul": 0.05
       },
       "c031": {
         "type": "noul",
@@ -158,15 +158,15 @@
       },
       "c038": {
         "type": "noul",
-        "noul": 0.24
+        "noul": 0.25
       },
       "c039": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.06
       },
       "c040": {
         "type": "noul",
-        "noul": 0.45
+        "noul": 0.43
       },
       "c041": {
         "type": "noul",
@@ -182,7 +182,7 @@
       },
       "c044": {
         "type": "noul",
-        "noul": 0.07
+        "noul": 0.08
       },
       "c045": {
         "type": "noul",

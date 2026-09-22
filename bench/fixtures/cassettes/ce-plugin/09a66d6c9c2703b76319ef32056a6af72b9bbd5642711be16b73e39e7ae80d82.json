@@ -18,11 +18,11 @@
       },
       "c003": {
         "type": "noul",
-        "noul": 0.06
+        "noul": 0.07
       },
       "c004": {
         "type": "noul",
-        "noul": 0.17
+        "noul": 0.16
       },
       "c005": {
         "type": "noul",
@@ -38,7 +38,7 @@
       },
       "c008": {
         "type": "noul",
-        "noul": 0.08
+        "noul": 0.07
       },
       "c009": {
         "type": "noul",
@@ -46,7 +46,7 @@
       },
       "c010": {
         "type": "noul",
-        "noul": 0.21
+        "noul": 0.22
       },
       "c011": {
         "type": "noul",
@@ -62,7 +62,7 @@
       },
       "c014": {
         "type": "noul",
-        "noul": 0.07
+        "noul": 0.08
       },
       "c015": {
         "type": "noul",
@@ -70,15 +70,15 @@
       },
       "c016": {
         "type": "noul",
-        "noul": 0.06
+        "noul": 0.05
       },
       "c017": {
         "type": "noul",
-        "noul": 0.32
+        "noul": 0.31
       },
       "c018": {
         "type": "noul",
-        "noul": 0.61
+        "noul": 0.6
       },
       "c019": {
         "type": "noul",
@@ -86,15 +86,15 @@
       },
       "c020": {
         "type": "noul",
-        "noul": 0.06
+        "noul": 0.05
       },
       "c021": {
         "type": "noul",
-        "noul": 0.18
+        "noul": 0.17
       },
       "c022": {
         "type": "noul",
-        "noul": 0.16
+        "noul": 0.14
       },
       "c023": {
         "type": "noul",
@@ -118,7 +118,7 @@
       },
       "c028": {
         "type": "noul",
-        "noul": 0.04
+        "noul": 0.03
       },
       "c029": {
         "type": "noul",
@@ -142,7 +142,7 @@
       },
       "c034": {
         "type": "noul",
-        "noul": 0.1
+        "noul": 0.09
       },
       "c035": {
         "type": "noul",
@@ -154,11 +154,11 @@
       },
       "c037": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.06
       },
       "c038": {
         "type": "noul",
-        "noul": 0.04
+        "noul": 0.05
       },
       "c039": {
         "type": "noul",
@@ -170,7 +170,7 @@
       },
       "c041": {
         "type": "noul",
-        "noul": 0.25
+        "noul": 0.26
       },
       "c042": {
         "type": "noul",
@@ -178,7 +178,7 @@
       },
       "c043": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.06
       },
       "c044": {
         "type": "noul",

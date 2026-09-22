@@ -6,7 +6,7 @@
     "answers": {
       "c000": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.06
       },
       "c001": {
         "type": "noul",
@@ -18,7 +18,7 @@
       },
       "c003": {
         "type": "noul",
-        "noul": 0.04
+        "noul": 0.05
       },
       "c004": {
         "type": "noul",
@@ -34,11 +34,11 @@
       },
       "c007": {
         "type": "noul",
-        "noul": 0.14
+        "noul": 0.13
       },
       "c008": {
         "type": "noul",
-        "noul": 0.21
+        "noul": 0.19
       },
       "c009": {
         "type": "noul",

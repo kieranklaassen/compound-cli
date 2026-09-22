@@ -39,3 +39,18 @@ export const NO_CHANNELS: ChannelInput = {
   planPath: undefined,
   docPath: undefined,
 };
+
+/**
+ * Cassette environment for CLI subprocess tests: replay by default; with
+ * RECORD_CASSETTES=1 and a real TYPESAFE_API_KEY the run records instead.
+ */
+export function cassetteEnv(dir: string): Record<string, string> {
+  const recording = process.env.RECORD_CASSETTES === "1" && Boolean(process.env.TYPESAFE_API_KEY);
+  if (!recording) return { COMPOUND_CASSETTE_MODE: "replay", COMPOUND_CASSETTE_DIR: dir };
+  return {
+    COMPOUND_CASSETTE_MODE: "record",
+    COMPOUND_CASSETTE_DIR: dir,
+    TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY as string,
+    TYPESAFE_BASE_URL: process.env.TYPESAFE_BASE_URL ?? "https://api.typesafe.ai",
+  };
+}

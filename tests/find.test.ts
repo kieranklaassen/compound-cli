@@ -162,7 +162,7 @@ describe("runFind on the fixture corpus", () => {
     });
     expect(run.result.hits).toEqual([]);
     expect(run.result.corpus.tier_two_judged).toBe(0);
-    expect(run.result.gate).toEqual({ probability: 0, threshold: 0.5, hits: 0 });
+    expect(run.result.gate).toEqual({ probability: 0, threshold: DEFAULTS.threshold, hits: 0 });
   });
 
   test("--overlap ignores pack candidates from known sources", async () => {

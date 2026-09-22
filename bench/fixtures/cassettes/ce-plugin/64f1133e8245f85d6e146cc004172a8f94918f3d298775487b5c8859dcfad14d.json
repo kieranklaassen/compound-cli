@@ -1,0 +1,48 @@
+{
+  "request_hash": "64f1133e8245f85d6e146cc004172a8f94918f3d298775487b5c8859dcfad14d",
+  "status": 200,
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "relevant": {
+        "type": "score",
+        "score": 1.41,
+        "confidence": 0.23,
+        "legend": {
+          "0": "Unrelated: a different situation, component, and kind of problem; at most shared vocabulary.",
+          "1": "Same area only: the same codebase area or technology, but its problem, rule, or decision does not come up in this work.",
+          "2": "Relevant background: its problem, rule, or decision could come up in this work; worth knowing but would not on its own change what the person does.",
+          "3": "Directly applies: this work is in, or will meet, the situation the document records; knowing it changes what the person does or checks."
+        },
+        "probabilities": {
+          "0": 0.16,
+          "1": 0.35,
+          "2": 0.4,
+          "3": 0.09
+        }
+      },
+      "where": {
+        "type": "choice",
+        "choice": "s00",
+        "confidence": 0.68,
+        "probabilities": {
+          "s05": 0.16,
+          "s02": 0.1,
+          "s03": 0,
+          "s01": 0,
+          "s00": 0.74,
+          "s04": 0,
+          "s06": 0
+        }
+      }
+    },
+    "usage": {
+      "input_tokens": 2424,
+      "output_tokens": 97
+    }
+  },
+  "meta": {
+    "model": "jev-latest",
+    "question_count": 2
+  }
+}

@@ -6,7 +6,7 @@
     "answers": {
       "c000": {
         "type": "noul",
-        "noul": 0.94
+        "noul": 0.95
       },
       "c001": {
         "type": "noul",
@@ -14,11 +14,11 @@
       },
       "c002": {
         "type": "noul",
-        "noul": 0.37
+        "noul": 0.36
       },
       "c003": {
         "type": "noul",
-        "noul": 0.55
+        "noul": 0.54
       },
       "c004": {
         "type": "noul",
@@ -26,11 +26,11 @@
       },
       "c005": {
         "type": "noul",
-        "noul": 0.06
+        "noul": 0.07
       },
       "c006": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.04
       },
       "c007": {
         "type": "noul",
@@ -42,11 +42,11 @@
       },
       "c009": {
         "type": "noul",
-        "noul": 0.11
+        "noul": 0.1
       },
       "c010": {
         "type": "noul",
-        "noul": 0.29
+        "noul": 0.32
       },
       "c011": {
         "type": "noul",
@@ -54,7 +54,7 @@
       },
       "c012": {
         "type": "noul",
-        "noul": 0.11
+        "noul": 0.09
       },
       "c013": {
         "type": "noul",
@@ -62,7 +62,7 @@
       },
       "c014": {
         "type": "noul",
-        "noul": 0.18
+        "noul": 0.17
       },
       "c015": {
         "type": "noul",
@@ -74,7 +74,7 @@
       },
       "c017": {
         "type": "noul",
-        "noul": 0.18
+        "noul": 0.17
       },
       "c018": {
         "type": "noul",
@@ -86,19 +86,19 @@
       },
       "c020": {
         "type": "noul",
-        "noul": 0.12
+        "noul": 0.11
       },
       "c021": {
         "type": "noul",
-        "noul": 0.14
+        "noul": 0.13
       },
       "c022": {
         "type": "noul",
-        "noul": 0.22
+        "noul": 0.24
       },
       "c023": {
         "type": "noul",
-        "noul": 0.15
+        "noul": 0.14
       },
       "c024": {
         "type": "noul",
@@ -106,11 +106,11 @@
       },
       "c025": {
         "type": "noul",
-        "noul": 0.1
+        "noul": 0.09
       },
       "c026": {
         "type": "noul",
-        "noul": 0.11
+        "noul": 0.1
       },
       "c027": {
         "type": "noul",
@@ -118,7 +118,7 @@
       },
       "c028": {
         "type": "noul",
-        "noul": 0.09
+        "noul": 0.1
       },
       "c029": {
         "type": "noul",
@@ -142,11 +142,11 @@
       },
       "c034": {
         "type": "noul",
-        "noul": 0.13
+        "noul": 0.12
       },
       "c035": {
         "type": "noul",
-        "noul": 0.15
+        "noul": 0.13
       },
       "c036": {
         "type": "noul",
@@ -154,7 +154,7 @@
       },
       "c037": {
         "type": "noul",
-        "noul": 0.15
+        "noul": 0.14
       },
       "c038": {
         "type": "noul",
@@ -162,11 +162,11 @@
       },
       "c039": {
         "type": "noul",
-        "noul": 0.11
+        "noul": 0.1
       },
       "c040": {
         "type": "noul",
-        "noul": 0.11
+        "noul": 0.1
       },
       "c041": {
         "type": "noul",
@@ -178,7 +178,7 @@
       },
       "c043": {
         "type": "noul",
-        "noul": 0.38
+        "noul": 0.39
       },
       "c044": {
         "type": "noul",
@@ -194,7 +194,7 @@
       },
       "c047": {
         "type": "noul",
-        "noul": 0.08
+        "noul": 0.07
       }
     },
     "usage": {

@@ -10,15 +10,15 @@
       },
       "c001": {
         "type": "noul",
-        "noul": 0.36
+        "noul": 0.42
       },
       "c002": {
         "type": "noul",
-        "noul": 0.19
+        "noul": 0.22
       },
       "c003": {
         "type": "noul",
-        "noul": 0.04
+        "noul": 0.05
       },
       "c004": {
         "type": "noul",
@@ -38,15 +38,15 @@
       },
       "c008": {
         "type": "noul",
-        "noul": 0.41
+        "noul": 0.39
       },
       "c009": {
         "type": "noul",
-        "noul": 0.1
+        "noul": 0.11
       },
       "c010": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.06
       },
       "c011": {
         "type": "noul",
@@ -62,7 +62,7 @@
       },
       "c014": {
         "type": "noul",
-        "noul": 0.06
+        "noul": 0.07
       }
     },
     "usage": {

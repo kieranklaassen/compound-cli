@@ -10,6 +10,7 @@ import { loadLearnings } from "../src/corpus/learnings.ts";
 import { EVERY_SOURCE, loadPackCandidates } from "../src/corpus/pack-sources.ts";
 import { loadPackRules, resolvePacks } from "../src/corpus/packs.ts";
 import { EXIT } from "../src/exit-codes.ts";
+import { DEFAULTS } from "../src/find/defaults.ts";
 import { applyFilters, NO_FILTERS } from "../src/find/filters.ts";
 import { parseUnifiedDiff } from "../src/input/diff.ts";
 import { buildWorkState } from "../src/input/work-state.ts";
@@ -430,7 +431,9 @@ describe("bench gate fidelity", () => {
       { env },
     );
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("threshold 0.01 differs from the recorded 0.5");
+    expect(result.stderr).toContain(
+      `threshold 0.01 differs from the recorded ${DEFAULTS.threshold}`,
+    );
   });
 
   test("the corpus block clones through the git cache; an unreachable ref exits 4", async () => {

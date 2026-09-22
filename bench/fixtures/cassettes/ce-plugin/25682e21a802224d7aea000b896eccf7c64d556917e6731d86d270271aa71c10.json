@@ -6,15 +6,15 @@
     "answers": {
       "c000": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.04
       },
       "c001": {
         "type": "noul",
-        "noul": 0.08
+        "noul": 0.07
       },
       "c002": {
         "type": "noul",
-        "noul": 0.28
+        "noul": 0.27
       },
       "c003": {
         "type": "noul",
@@ -26,11 +26,11 @@
       },
       "c005": {
         "type": "noul",
-        "noul": 0.2
+        "noul": 0.19
       },
       "c006": {
         "type": "noul",
-        "noul": 0.08
+        "noul": 0.07
       },
       "c007": {
         "type": "noul",
@@ -46,7 +46,7 @@
       },
       "c010": {
         "type": "noul",
-        "noul": 0.19
+        "noul": 0.18
       },
       "c011": {
         "type": "noul",
@@ -62,7 +62,7 @@
       },
       "c014": {
         "type": "noul",
-        "noul": 0.15
+        "noul": 0.14
       }
     },
     "usage": {

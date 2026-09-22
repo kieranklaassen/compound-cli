@@ -18,7 +18,7 @@ import { runFind } from "../src/find/find.ts";
 import { repoProfile } from "../src/input/repo-profile.ts";
 import { buildWorkState } from "../src/input/work-state.ts";
 import { suggestRequest } from "../src/judge/questions.ts";
-import { fakeContext, NO_CHANNELS } from "./helpers/fixtures.ts";
+import { cassetteEnv, fakeContext, NO_CHANNELS } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 import { testJudge } from "./helpers/test-judge.ts";
 
@@ -242,8 +242,7 @@ describe("packs suggest command", () => {
   const env = {
     HOME: EMPTY_HOME,
     CE_PACKS_CACHE_ROOT: cacheRoot,
-    COMPOUND_CASSETTE_MODE: "replay",
-    COMPOUND_CASSETTE_DIR: resolve(import.meta.dir, "fixtures/cassettes/suggest"),
+    ...cassetteEnv(resolve(import.meta.dir, "fixtures/cassettes/suggest")),
   };
 
   test("--json lists the undeclared pack with its declaration when the work matches", async () => {

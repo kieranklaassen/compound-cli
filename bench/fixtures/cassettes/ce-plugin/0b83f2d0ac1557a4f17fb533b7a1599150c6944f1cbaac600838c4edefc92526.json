@@ -14,11 +14,11 @@
       },
       "c002": {
         "type": "noul",
-        "noul": 0.07
+        "noul": 0.06
       },
       "c003": {
         "type": "noul",
-        "noul": 0.06
+        "noul": 0.05
       },
       "c004": {
         "type": "noul",
@@ -38,7 +38,7 @@
       },
       "c008": {
         "type": "noul",
-        "noul": 0.53
+        "noul": 0.49
       },
       "c009": {
         "type": "noul",
@@ -46,7 +46,7 @@
       },
       "c010": {
         "type": "noul",
-        "noul": 0.16
+        "noul": 0.14
       },
       "c011": {
         "type": "noul",
@@ -74,7 +74,7 @@
       },
       "c017": {
         "type": "noul",
-        "noul": 0.06
+        "noul": 0.07
       },
       "c018": {
         "type": "noul",
@@ -82,7 +82,7 @@
       },
       "c019": {
         "type": "noul",
-        "noul": 0.16
+        "noul": 0.17
       },
       "c020": {
         "type": "noul",
@@ -102,7 +102,7 @@
       },
       "c024": {
         "type": "noul",
-        "noul": 0.12
+        "noul": 0.11
       },
       "c025": {
         "type": "noul",
@@ -110,7 +110,7 @@
       },
       "c026": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.04
       },
       "c027": {
         "type": "noul",
@@ -130,7 +130,7 @@
       },
       "c031": {
         "type": "noul",
-        "noul": 0.13
+        "noul": 0.12
       },
       "c032": {
         "type": "noul",
@@ -166,11 +166,11 @@
       },
       "c040": {
         "type": "noul",
-        "noul": 0.06
+        "noul": 0.05
       },
       "c041": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.04
       },
       "c042": {
         "type": "noul",
@@ -190,7 +190,7 @@
       },
       "c046": {
         "type": "noul",
-        "noul": 0.16
+        "noul": 0.15
       },
       "c047": {
         "type": "noul",

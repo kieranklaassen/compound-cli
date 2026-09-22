@@ -6,7 +6,7 @@
     "answers": {
       "c000": {
         "type": "noul",
-        "noul": 0.07
+        "noul": 0.06
       },
       "c001": {
         "type": "noul",
@@ -46,7 +46,7 @@
       },
       "c010": {
         "type": "noul",
-        "noul": 0.07
+        "noul": 0.06
       },
       "c011": {
         "type": "noul",

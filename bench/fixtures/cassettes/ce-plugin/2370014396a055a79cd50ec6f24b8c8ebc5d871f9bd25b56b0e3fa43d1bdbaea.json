@@ -6,7 +6,7 @@
     "answers": {
       "c000": {
         "type": "noul",
-        "noul": 0.16
+        "noul": 0.17
       },
       "c001": {
         "type": "noul",
@@ -14,31 +14,31 @@
       },
       "c002": {
         "type": "noul",
-        "noul": 0.12
+        "noul": 0.13
       },
       "c003": {
         "type": "noul",
-        "noul": 0.15
+        "noul": 0.16
       },
       "c004": {
         "type": "noul",
-        "noul": 0.18
+        "noul": 0.2
       },
       "c005": {
         "type": "noul",
-        "noul": 0.16
+        "noul": 0.18
       },
       "c006": {
         "type": "noul",
-        "noul": 0.08
+        "noul": 0.09
       },
       "c007": {
         "type": "noul",
-        "noul": 0.18
+        "noul": 0.2
       },
       "c008": {
         "type": "noul",
-        "noul": 0.33
+        "noul": 0.35
       },
       "c009": {
         "type": "noul",
@@ -46,23 +46,23 @@
       },
       "c010": {
         "type": "noul",
-        "noul": 0.12
+        "noul": 0.14
       },
       "c011": {
         "type": "noul",
-        "noul": 0.13
+        "noul": 0.14
       },
       "c012": {
         "type": "noul",
-        "noul": 0.18
+        "noul": 0.19
       },
       "c013": {
         "type": "noul",
-        "noul": 0.2
+        "noul": 0.21
       },
       "c014": {
         "type": "noul",
-        "noul": 0.32
+        "noul": 0.33
       }
     },
     "usage": {

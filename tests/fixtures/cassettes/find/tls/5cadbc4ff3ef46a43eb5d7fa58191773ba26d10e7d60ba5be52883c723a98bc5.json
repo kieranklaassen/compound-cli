@@ -10,7 +10,7 @@
       },
       "c001": {
         "type": "noul",
-        "noul": 0.02
+        "noul": 0.03
       },
       "c002": {
         "type": "noul",
@@ -18,11 +18,11 @@
       },
       "c003": {
         "type": "noul",
-        "noul": 0.05
+        "noul": 0.04
       },
       "c004": {
         "type": "noul",
-        "noul": 0.17
+        "noul": 0.2
       },
       "c005": {
         "type": "noul",
@@ -34,11 +34,11 @@
       },
       "c007": {
         "type": "noul",
-        "noul": 0.07
+        "noul": 0.06
       },
       "c008": {
         "type": "noul",
-        "noul": 0.02
+        "noul": 0.03
       }
     },
     "usage": {

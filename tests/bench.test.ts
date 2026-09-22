@@ -7,6 +7,7 @@ import { aggregate, type CaseRun, latencyStats, scoreCase } from "../src/bench/s
 import type { Candidate } from "../src/corpus/candidate.ts";
 import { UsageError } from "../src/errors.ts";
 import type { FindRun, ScoredCandidate } from "../src/find/result.ts";
+import { cassetteEnv } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 
 const CORPUS = resolve(import.meta.dir, "fixtures/corpus");
@@ -217,10 +218,7 @@ describe("compound bench command", () => {
         ],
       }),
     );
-    const env = {
-      COMPOUND_CASSETTE_MODE: "replay",
-      COMPOUND_CASSETTE_DIR: resolve(import.meta.dir, "fixtures/cassettes/bench-fixture"),
-    };
+    const env = cassetteEnv(resolve(import.meta.dir, "fixtures/cassettes/bench-fixture"));
     const result = await runCli(
       [
         "bench",
