@@ -174,7 +174,11 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     cassette_mode: mode,
     warnings: [...warnings],
   };
-  if (mode === "record" || mode === "auto") writeManifest(ctx, settings, report.model);
+  // auto leaves a pin behind for a fresh recording but never rewrites one: the
+  // pin records what the cassettes were scored at, not what this run used.
+  if (mode === "record" || (mode === "auto" && manifest === undefined)) {
+    writeManifest(ctx, settings, report.model);
+  }
 
   if (v.out) {
     const outPath = resolve(ctx.cwd, v.out);
@@ -352,16 +356,21 @@ function manifestPath(ctx: Context): string | undefined {
 
 /**
  * A replay scores recorded answers, so only the pin makes a threshold change
- * visible: a pin that is missing is as unsound as one that disagrees.
+ * visible: a pin that is missing is as unsound as one that disagrees. Auto
+ * mode replays whatever it has, so a pin that disagrees is a failure there
+ * too; a missing one is not, because the run writes it.
  */
 function thresholdPinFailure(
   manifest: Manifest | undefined,
   mode: CassetteMode,
   threshold: number,
 ): string | undefined {
-  if (mode !== "replay") return undefined;
-  if (manifest === undefined)
-    return "the cassettes have no readable manifest.json pinning the threshold they were recorded at";
+  if (mode !== "replay" && mode !== "auto") return undefined;
+  if (manifest === undefined) {
+    return mode === "replay"
+      ? "the cassettes have no readable manifest.json pinning the threshold they were recorded at"
+      : undefined;
+  }
   if (manifest.threshold !== threshold)
     return `threshold ${threshold} differs from the recorded ${manifest.threshold}`;
   return undefined;

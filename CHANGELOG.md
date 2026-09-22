@@ -19,6 +19,10 @@ All notable changes to compound-cli. The format follows Keep a Changelog, and th
 - `bench/scripts/measure-recall.ts`, the flat-JSON measurement harness an optimization loop consumes (Cora dev recall at a precision floor, a live latency probe, the public set as a regression gate).
 - Subprocess tests honor `RECORD_CASSETTES=1` through a shared `cassetteEnv` helper.
 
+### Fixed
+
+- `bench --enforce-floor` in replay mode fails when the recording has no `manifest.json`, since without the pin a threshold change could pass unnoticed. `auto` mode writes the pin for a fresh recording, never rewrites an existing one, and fails the gate when the threshold disagrees with it.
+
 ## 0.1.0
 
 First release.

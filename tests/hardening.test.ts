@@ -455,6 +455,54 @@ describe("bench gate fidelity", () => {
     expect(result.stderr).toContain("no readable manifest.json");
   });
 
+  test("auto mode writes the pin for a fresh recording and keeps an existing one", async () => {
+    const unpinned = mkdtempSync(join(tmpdir(), "compound-cli-autopin-"));
+    cpSync(join(CASSETTES, "bench-fixture"), unpinned, {
+      recursive: true,
+      filter: (src) => !src.endsWith("manifest.json"),
+    });
+    const cases = casesFile(
+      "autopin",
+      ["docs/solutions/cli/exit-codes-for-expected-empty-results.md"],
+      { macro_recall: 0.5 },
+    );
+    const autoEnv = {
+      ...env,
+      COMPOUND_CASSETTE_MODE: "auto",
+      COMPOUND_CASSETTE_DIR: unpinned,
+      TYPESAFE_API_KEY: "never-used-every-request-replays",
+    };
+    const first = await runCli(
+      ["bench", "--cases", cases, "--root", CORPUS, "--json", "--enforce-floor"],
+      { env: autoEnv },
+    );
+    expect(first.code).toBe(0);
+    const pinned = JSON.parse(readFileSync(join(unpinned, "manifest.json"), "utf8"));
+    expect(pinned.threshold).toBe(DEFAULTS.threshold);
+
+    const drifted = await runCli(
+      [
+        "bench",
+        "--cases",
+        cases,
+        "--root",
+        CORPUS,
+        "--json",
+        "--enforce-floor",
+        "--threshold",
+        "0.01",
+      ],
+      { env: autoEnv },
+    );
+    expect(drifted.code).toBe(1);
+    expect(drifted.stderr).toContain(
+      `threshold 0.01 differs from the recorded ${DEFAULTS.threshold}`,
+    );
+    expect(JSON.parse(readFileSync(join(unpinned, "manifest.json"), "utf8")).threshold).toBe(
+      DEFAULTS.threshold,
+    );
+  });
+
   test("the corpus block clones through the git cache; an unreachable ref exits 4", async () => {
     const work = mkdtempSync(join(tmpdir(), "compound-cli-corpus-"));
     cpSync(join(CORPUS, "docs"), join(work, "docs"), { recursive: true });
