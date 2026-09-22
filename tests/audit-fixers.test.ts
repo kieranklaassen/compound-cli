@@ -41,6 +41,8 @@ const VOCABULARY: Vocabulary = {
   component: ["api", "background_job"],
   root_cause: [],
   tags: ["retry", "backoff", "sync"],
+  enum_usage: { problem_type: { best_practice: 3 }, severity: { low: 2 }, resolution_type: {} },
+  usage: { module: { http: 3, sync: 1 }, component: { api: 3, background_job: 1 }, root_cause: {} },
 };
 
 /** A judge whose answers are scripted per question key pattern. */

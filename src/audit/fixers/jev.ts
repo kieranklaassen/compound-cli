@@ -90,13 +90,28 @@ export async function jevFixes(
 
   const choices: AuditChoice[] = [];
   if (rules.has("problem_type.missing") || rules.has("problem_type.invalid")) {
-    choices.push({ field: "problem_type", options: plain(PROBLEM_TYPES), tagged: false });
+    choices.push({
+      field: "problem_type",
+      options: plain(PROBLEM_TYPES),
+      tagged: false,
+      usage: vocabulary.enum_usage.problem_type,
+    });
   }
   if (rules.has("severity.missing") || rules.has("severity.invalid")) {
-    choices.push({ field: "severity", options: plain(SEVERITIES), tagged: false });
+    choices.push({
+      field: "severity",
+      options: plain(SEVERITIES),
+      tagged: false,
+      usage: vocabulary.enum_usage.severity,
+    });
   }
   if (rules.has("resolution_type.missing") || rules.has("resolution_type.invalid")) {
-    choices.push({ field: "resolution_type", options: plain(RESOLUTION_TYPES), tagged: false });
+    choices.push({
+      field: "resolution_type",
+      options: plain(RESOLUTION_TYPES),
+      tagged: false,
+      usage: vocabulary.enum_usage.resolution_type,
+    });
   }
   for (const [field, fallback] of [
     ["module", []],
@@ -106,7 +121,11 @@ export async function jevFixes(
     if (!rules.has(`${field}.missing`)) continue;
     const corpus = vocabulary[field];
     if (corpus.length >= 2) {
-      choices.push({ field, options: tagged(corpus, "v"), tagged: true });
+      const options = tagged(corpus, "v");
+      const usage: Record<string, number> = {};
+      for (const [tag, value] of Object.entries(options))
+        usage[tag] = vocabulary.usage[field][value] ?? 0;
+      choices.push({ field, options, tagged: true, usage });
     } else if (fallback.length) {
       choices.push({ field, options: plain(fallback), tagged: false });
     } else {

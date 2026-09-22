@@ -230,6 +230,8 @@ export type AuditChoice = {
   options: Record<string, string>;
   /** Whether `options` keys are opaque tags whose values live in state. */
   tagged: boolean;
+  /** For schema enums: how often this corpus uses each value, so the judge can follow the house style. */
+  usage?: Record<string, number>;
 };
 
 export type AuditNoulSet = {
@@ -244,6 +246,7 @@ export function auditChoiceRequest(
   choices: AuditChoice[],
 ): { state: Record<string, unknown>; questions: Questions } {
   const vocabulary: Record<string, Record<string, string>> = {};
+  const usage: Record<string, Record<string, number>> = {};
   const questions: Questions = {};
   for (const choice of choices) {
     const criteria: ChoiceCriteria = {};
@@ -255,16 +258,25 @@ export function auditChoiceRequest(
     } else {
       for (const value of Object.keys(choice.options)) criteria[value] = `\`${value}\``;
     }
+    if (choice.usage && Object.keys(choice.usage).length) usage[choice.field] = choice.usage;
     questions[choice.field] = choiceQuestion(
       `Which value fits the learning in \`document\` best for its \`${choice.field}\` field? ${
         choice.tagged
-          ? `The options are the values this corpus already uses, under \`vocabulary.${choice.field}\`.`
-          : "The options are the schema's values."
+          ? `The options are the values this corpus already uses, under \`vocabulary.${choice.field}\`${
+              usage[choice.field]
+                ? `; \`usage.${choice.field}\` counts how often each is used, by the same tag. When two values fit, follow the corpus's habit.`
+                : "."
+            }`
+          : `The options are the schema's values.${
+              usage[choice.field]
+                ? ` \`usage.${choice.field}\` counts how often this corpus uses each value; when two values fit, follow the corpus's habit.`
+                : ""
+            }`
       }`,
       criteria,
     );
   }
-  return { state: { task: AUDIT_TASK, document, vocabulary }, questions };
+  return { state: { task: AUDIT_TASK, document, vocabulary, usage }, questions };
 }
 
 export function auditNoulRequest(

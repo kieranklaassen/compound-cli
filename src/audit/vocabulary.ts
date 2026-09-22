@@ -12,22 +12,37 @@ export type Vocabulary = {
   root_cause: string[];
   /** Tags used by at least two files, most frequent first, at most `TAG_VOCABULARY_MAX`. */
   tags: string[];
+  /** How often the corpus uses each schema value: the house style a judge should lean toward. */
+  enum_usage: Record<"problem_type" | "severity" | "resolution_type", Record<string, number>>;
+  /** How often the corpus uses each open-vocabulary value. */
+  usage: Record<"module" | "component" | "root_cause", Record<string, number>>;
 };
 
 export const TAG_VOCABULARY_MAX = 60;
 
 export function buildVocabulary(documents: Iterable<SplitDocument>): Vocabulary {
-  const counts: Record<keyof Vocabulary, Map<string, number>> = {
+  const counts: Record<"module" | "component" | "root_cause" | "tags", Map<string, number>> = {
     module: new Map(),
     component: new Map(),
     root_cause: new Map(),
     tags: new Map(),
+  };
+  const enumUsage: Vocabulary["enum_usage"] = {
+    problem_type: {},
+    severity: {},
+    resolution_type: {},
   };
   for (const doc of documents) {
     if (doc.parseError) continue;
     for (const field of ["module", "component", "root_cause"] as const) {
       const value = doc.data[field];
       if (typeof value === "string" && value.trim()) bump(counts[field], value.trim());
+    }
+    for (const field of ["problem_type", "severity", "resolution_type"] as const) {
+      const value = doc.data[field];
+      if (typeof value === "string" && value.trim()) {
+        enumUsage[field][value.trim()] = (enumUsage[field][value.trim()] ?? 0) + 1;
+      }
     }
     const tags = doc.data.tags;
     if (Array.isArray(tags)) {
@@ -40,6 +55,12 @@ export function buildVocabulary(documents: Iterable<SplitDocument>): Vocabulary 
     component: ranked(counts.component),
     root_cause: ranked(counts.root_cause),
     tags: ranked(counts.tags, 2).slice(0, TAG_VOCABULARY_MAX),
+    enum_usage: enumUsage,
+    usage: {
+      module: Object.fromEntries(counts.module),
+      component: Object.fromEntries(counts.component),
+      root_cause: Object.fromEntries(counts.root_cause),
+    },
   };
 }
 
