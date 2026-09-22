@@ -38,6 +38,7 @@ export function fakeContext(overrides: Partial<Context> = {}, stdin = ""): Conte
     stderr: () => {},
     readStdin: async () => stdin,
     isTTY: false,
+    confirm: async () => false,
     ...overrides,
   };
 }

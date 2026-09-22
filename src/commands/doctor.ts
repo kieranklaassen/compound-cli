@@ -1,10 +1,12 @@
 import { HELP_OPTION, type OptionSpecs, parseCommandArgs, ROOT_OPTION } from "../args.ts";
+import { auditFiles, loadAuditCorpus } from "../audit/audit.ts";
+import { summarize } from "../audit/report.ts";
 import { loadCeConfig } from "../config/ce-config.ts";
 import { resolveRepoRoot } from "../config/repo-root.ts";
 import type { Context } from "../context.ts";
 import { hasAppliesWhen } from "../corpus/candidate.ts";
 import { createGitCache } from "../corpus/git-cache.ts";
-import { loadCorpus } from "../corpus/load.ts";
+import { loadCorpus, type Workspace } from "../corpus/load.ts";
 import { type KnownSource, knownSources, localSourceDir } from "../corpus/pack-sources.ts";
 import { enumeratePacks } from "../corpus/packs.ts";
 import { NotConfiguredError } from "../errors.ts";
@@ -30,6 +32,14 @@ export type DoctorReport = {
     missing_applies_when: string[];
     missing_date: string[];
     malformed: Array<{ path: string; error: string }>;
+  };
+  /** The audit rules without a judge: what `compound audit` would report. */
+  audit: {
+    files: number;
+    files_failing: number;
+    errors: number;
+    warnings: number;
+    fixable: number;
   };
   packs: {
     entries: number;
@@ -153,6 +163,7 @@ export function buildReport(
       missing_date: learnings.candidates.filter((c) => !c.frontmatter.date).map((c) => c.path),
       malformed: learnings.malformed,
     },
+    audit: auditCounts({ repoRoot: repo.root, config, git }),
     packs: {
       entries: resolution.entries,
       roots,
@@ -183,6 +194,11 @@ export function renderDoctor(report: DoctorReport): string {
   lines.push(`  malformed frontmatter: ${l.malformed.length}`);
   for (const item of l.malformed) lines.push(`    ${item.path}: ${item.error}`);
   lines.push("");
+  const a = report.audit;
+  lines.push(
+    `audit: ${a.files} files, ${a.files_failing} failing, ${a.errors} errors, ${a.warnings} warnings, ${a.fixable} fixable${a.files_failing ? " (run `compound audit` for the list, `compound audit --fix` to repair)" : ""}`,
+  );
+  lines.push("");
   lines.push(
     `packs: ${report.packs.entries} ${report.packs.entries === 1 ? "entry" : "entries"}, ${report.packs.roots.length} resolved`,
   );
@@ -205,4 +221,16 @@ export function renderDoctor(report: DoctorReport): string {
   }
   lines.push(`cache: ${report.cache ?? "unavailable"}`);
   return `${lines.join("\n")}\n`;
+}
+
+function auditCounts(workspace: Workspace): DoctorReport["audit"] {
+  const corpus = loadAuditCorpus(workspace, { packs: false });
+  const summary = summarize(auditFiles(corpus.files), false);
+  return {
+    files: summary.files,
+    files_failing: summary.files_failing,
+    errors: summary.errors,
+    warnings: summary.warnings,
+    fixable: summary.fixable,
+  };
 }

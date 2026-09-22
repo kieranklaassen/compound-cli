@@ -11,6 +11,7 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   packs: () => import("./commands/packs.ts"),
   bench: () => import("./commands/bench.ts"),
   doctor: () => import("./commands/doctor.ts"),
+  audit: () => import("./commands/audit.ts"),
 };
 
 export async function main(argv: string[], ctx: Context = processContext()): Promise<number> {

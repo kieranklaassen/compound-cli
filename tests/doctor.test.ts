@@ -29,6 +29,7 @@ describe("compound doctor", () => {
     expect(result.code).toBe(0);
     const json = JSON.parse(result.stdout);
     expect(Object.keys(json).sort()).toEqual([
+      "audit",
       "cache",
       "docs_root",
       "key",
@@ -40,6 +41,8 @@ describe("compound doctor", () => {
     expect(json.key.present).toBe(true);
     expect(result.stdout).not.toContain("secret-value-123");
     expect(json.learnings.missing_date).toEqual([]);
+    expect(json.audit.files).toBe(json.learnings.count + json.learnings.malformed.length);
+    expect(typeof json.audit.files_failing).toBe("number");
     expect(json.packs.roots[0].id).toBe("local-rules");
     expect(json.known_sources.map((s: { source: string }) => s.source)).toEqual([
       "https://github.com/EveryInc/compound-packs.git@main",

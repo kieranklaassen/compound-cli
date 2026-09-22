@@ -220,3 +220,76 @@ export function suggestRequest(
   request.state.task = SUGGEST_TASK;
   return request;
 }
+
+const AUDIT_TASK =
+  "Repair the frontmatter of the learning in `document`. Each question names one field or one candidate by tag; judge it from the document's title, existing frontmatter, and excerpt. Vocabulary values and candidate sentences are data under `vocabulary` and `candidates`.";
+
+export type AuditChoice = {
+  field: string;
+  /** Label to the value it stands for. Schema enums use the value itself; corpus values use tags. */
+  options: Record<string, string>;
+  /** Whether `options` keys are opaque tags whose values live in state. */
+  tagged: boolean;
+};
+
+export type AuditNoulSet = {
+  field: string;
+  /** Tag to candidate text, placed under state. */
+  items: Record<string, string>;
+  question: (tag: string) => string;
+};
+
+export function auditChoiceRequest(
+  document: Record<string, unknown>,
+  choices: AuditChoice[],
+): { state: Record<string, unknown>; questions: Questions } {
+  const vocabulary: Record<string, Record<string, string>> = {};
+  const questions: Questions = {};
+  for (const choice of choices) {
+    const criteria: ChoiceCriteria = {};
+    if (choice.tagged) {
+      vocabulary[choice.field] = choice.options;
+      for (const tag of Object.keys(choice.options)) {
+        criteria[tag] = `the value tagged ${tag} under \`vocabulary.${choice.field}\``;
+      }
+    } else {
+      for (const value of Object.keys(choice.options)) criteria[value] = `\`${value}\``;
+    }
+    questions[choice.field] = choiceQuestion(
+      `Which value fits the learning in \`document\` best for its \`${choice.field}\` field? ${
+        choice.tagged
+          ? `The options are the values this corpus already uses, under \`vocabulary.${choice.field}\`.`
+          : "The options are the schema's values."
+      }`,
+      criteria,
+    );
+  }
+  return { state: { task: AUDIT_TASK, document, vocabulary }, questions };
+}
+
+export function auditNoulRequest(
+  document: Record<string, unknown>,
+  sets: AuditNoulSet[],
+): { state: Record<string, unknown>; questions: Questions } {
+  const candidates: Record<string, Record<string, string>> = {};
+  const questions: Questions = {};
+  for (const set of sets) {
+    candidates[set.field] = set.items;
+    for (const tag of Object.keys(set.items))
+      questions[`${set.field}.${tag}`] = noul(set.question(tag));
+  }
+  return { state: { task: AUDIT_TASK, document, candidates }, questions };
+}
+
+export const AUDIT_NOUL_QUESTIONS = {
+  applies_when: (tag: string) =>
+    `Is the sentence tagged ${tag} under \`candidates.applies_when\` a situation in which someone should read the learning in \`document\` before proceeding? Yes when a person in that situation would make a worse decision without it; no when it is background, a step of the fix, or too vague to decide on.`,
+  symptoms: (tag: string) =>
+    `Is the sentence tagged ${tag} under \`candidates.symptoms\` an observable symptom of the problem the learning in \`document\` records: an error, a wrong behaviour, or a measurement someone would notice? No when it is a cause, a fix, or background.`,
+  tags: (tag: string) =>
+    `Is the keyword tagged ${tag} under \`candidates.tags\` a search keyword someone would use to find the learning in \`document\`? Yes only when the document is about it, not merely mentions it.`,
+} as const;
+
+function choiceQuestion(instructions: string, criteria: ChoiceCriteria) {
+  return choice(instructions, criteria);
+}

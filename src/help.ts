@@ -19,6 +19,7 @@ Commands
   packs     resolve | list | suggest | add: declared and suggested Compound Packs
   bench     Run a gold set of cases and report recall, cost, and latency
   doctor    Check the key, the corpus, and pack sources
+  audit     Validate learning frontmatter against the schema; --fix repairs it
   version   Print the version
 
 Global options
@@ -121,6 +122,43 @@ Options
   --json                    Full result as JSON
   --out <file>              Also write the JSON result to a file
   --model <name>            TypeSafe model (default jev-latest)
+`;
+
+export const AUDIT_HELP = `compound audit: validate learning frontmatter against the schema, and repair it
+
+Usage
+  compound audit [--root <dir>] [--json] [--strict] [--packs] [--report <file>]
+  compound audit --fix [--dry-run | --yes] [--root <dir>] [--json] [--report <file>]
+
+Checks every file under <root>/solutions/ against the plugin's schema: frontmatter
+that parses and quotes hazards, title, date, problem_type, module, component,
+severity, the bug-track fields (symptoms, root_cause, resolution_type), and the
+findability fields applies_when (present, specific, at most 5) and tags (lowercase,
+at most 8). Errors are schema and parser-safety violations; warnings are findability
+gaps. Exit 6 when a file has an error; --strict makes warnings count.
+
+--fix repairs what it can and shows every change as a diff of the frontmatter block.
+Deterministic fixes first (a date from the file's history or name, enum spelling,
+tag format, scalars wrapped in lists, a title from the first heading), then Jev:
+problem_type, severity, and resolution_type as a choice over the schema's values;
+module, component, and root_cause as a choice over the values this corpus already
+uses; tags as judgments over the corpus's own tags; applies_when and symptoms from
+sentences extracted from the body and judged one by one. Nothing is invented: when
+no sentence passes, the field is marked needs_author. Bodies are never touched.
+--fix needs TYPESAFE_API_KEY (exit 3 without it). Pack rules are audited, not fixed.
+
+Options
+  --root <dir>              Repository root (default: the git root of the working directory)
+  --json                    Print the report as JSON (schema_version 1)
+  --strict                  Warnings fail too
+  --packs                   Also audit declared pack rules (validate-packs rules)
+  --report <file>           Write the JSON report to a file whatever the terminal format
+  --fix                     Propose and apply repairs
+  --dry-run                 With --fix: show the diffs, write nothing
+  --yes                     With --fix: apply without the prompt (required off a TTY)
+  --model <name>            TypeSafe model (default jev-latest)
+
+Exit codes: 0 all files pass; 6 a file fails; 2 usage; 3 --fix without a key; 4 no corpus.
 `;
 
 export const DOCTOR_HELP = `compound doctor: check the key, the corpus, and pack sources
