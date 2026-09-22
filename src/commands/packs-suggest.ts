@@ -1,10 +1,17 @@
-import { HELP_OPTION, type OptionSpecs, parseCommandArgs, ROOT_OPTION } from "../args.ts";
+import {
+  HELP_OPTION,
+  type OptionSpecs,
+  parseCommandArgs,
+  ROOT_OPTION,
+  requireProbability,
+} from "../args.ts";
 import type { Context } from "../context.ts";
 import type { Candidate } from "../corpus/candidate.ts";
 import { openWorkspace } from "../corpus/load.ts";
 import { type FetchPolicy, loadPackCandidates } from "../corpus/pack-sources.ts";
 import { resolvePacks } from "../corpus/packs.ts";
 import { EXIT } from "../exit-codes.ts";
+import { DEFAULTS } from "../find/defaults.ts";
 import { declaredPackIds } from "../find/find.ts";
 import { SCHEMA_VERSION } from "../find/result.ts";
 import { judgePackCandidates } from "../find/tier-one.ts";
@@ -43,7 +50,11 @@ export async function runSuggest(argv: string[], ctx: Context): Promise<number> 
     ctx.stdout(PACKS_HELP);
     return EXIT.OK;
   }
-  const { threshold, batch, parallel, model } = resolveJudgeSettings(v);
+  const { batch, parallel, model } = resolveJudgeSettings(v);
+  const threshold =
+    v.threshold === undefined
+      ? DEFAULTS.suggestThreshold
+      : requireProbability("threshold", v.threshold, DEFAULTS.suggestThreshold);
   const input = channelInput(parsed);
   const state = hasAnyChannel(input) ? await buildWorkState(input, ctx) : null;
   const judge = judgeFromEnv(ctx.env, { model, parallel });

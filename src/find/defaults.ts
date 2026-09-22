@@ -3,7 +3,10 @@
  * the bench README section records the run that set each value.
  */
 export const DEFAULTS = {
-  threshold: 0.5,
+  /** Hit threshold for learnings and pack rules (a tier-two graded score, normalized). */
+  threshold: 0.6,
+  /** Hit threshold for pack suggestions (a tier-one Noul probability). */
+  suggestThreshold: 0.5,
   tierOneThreshold: 0.3,
   batch: 48,
   parallel: 4,

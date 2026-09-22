@@ -61,7 +61,7 @@ Modes
   --overlap                 Judge --doc against existing learnings on five dimensions
 
 Judging
-  --threshold <0..1>        Relevance threshold for hits (default 0.5)
+  --threshold <0..1>        Relevance threshold for hits (default 0.6)
   --tier-one-threshold <p>  Tier-one pass to earn a body read (default 0.3)
   --frontmatter-only        Skip tier two; tier-one scores are final
   --batch <n>               Candidates per tier-one request (default 48)
@@ -112,7 +112,7 @@ Usage
 Options
   --cases <file>            Cases file (see bench/cases/ce-plugin.json)
   --root <dir>              Corpus checkout; overrides the cases file's corpus block
-  --threshold <0..1>        Relevance threshold (default 0.5)
+  --threshold <0..1>        Relevance threshold (default 0.6)
   --sweep <p,p,...>         Re-score the same judgments at several thresholds
   --frontmatter-only        Skip tier two
   --enforce-floor           Exit 1 when a floor in the cases file is not met

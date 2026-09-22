@@ -7,6 +7,7 @@ import { assertWorkFits, judgeState, type WorkState } from "../input/work-state.
 import type { Judge } from "../judge/client.ts";
 import type { JudgeWork } from "../judge/questions.ts";
 import { errorMessage, round4 } from "../util.ts";
+import { DEFAULTS } from "./defaults.ts";
 import { applyFilters, type CandidateFilters } from "./filters.ts";
 import { judgeOverlap } from "./overlap.ts";
 import { prefilter } from "./prefilter.ts";
@@ -190,10 +191,18 @@ export function declaredPackIds(config: CeConfig, resolution: PacksResolution): 
   return ids;
 }
 
-/** Hits are the scored candidates at or above the threshold, strongest first. */
+/**
+ * Hits are the scored candidates at or above their threshold, strongest first.
+ * Pack suggestions are tier-one Noul probabilities on a different scale from
+ * the graded tier-two score, so they keep their own threshold.
+ */
 export function buildHits(scored: ScoredCandidate[], threshold: number): Hit[] {
   return scored
-    .filter((entry) => entry.score !== null && entry.score >= threshold)
+    .filter((entry) => {
+      if (entry.score === null) return false;
+      const bar = entry.candidate.kind === "pack_candidate" ? DEFAULTS.suggestThreshold : threshold;
+      return entry.score >= bar;
+    })
     .sort(
       (a, b) =>
         (b.score ?? 0) - (a.score ?? 0) ||
