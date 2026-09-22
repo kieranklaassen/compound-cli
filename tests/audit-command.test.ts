@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { cpSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { EXIT } from "../src/exit-codes.ts";
 import { startFakeTypeSafe } from "./helpers/fake-typesafe.ts";
 import { cassetteEnv, tempDir, tempRepo } from "./helpers/fixtures.ts";
@@ -29,6 +29,18 @@ function bodyOf(text: string): string {
   const parts = text.split(/^---$/m);
   return parts.slice(2).join("---");
 }
+
+/** A pack README that passes: three real situations and the pack id among the tags. */
+function packReadme(packId: string): string {
+  return `---\ntitle: Feature flag conventions for the team\napplies_when:\n  - "Deciding how to gate a feature behind a flag"\n  - "Removing a flag after its rollout finished"\n  - "Naming a new flag for an experiment"\ntags: [flipper, ${packId}]\n---\n# Pack\n`;
+}
+
+const PACK_RULE =
+  '---\ntitle: Prefer plain flipper checks over wrappers\napplies_when:\n  - "Deciding how to gate a feature behind a flag"\ntags: [flipper]\nmodule: flags\nproblem_type: convention\nrecord_type: rule\n---\n# Rule\n';
+
+/** compound-packs' `record_type`, declared the way its config does. */
+const RECORD_TYPE_CONFIG =
+  "compound:\n  schema:\n    fields:\n      record_type:\n        type: enum\n        values: [decision, rule, observation]\n        required: true\n        kinds: [pack_rule]\n";
 
 describe("compound audit: report only", () => {
   test("the fixture corpus exits 6 with one finding per failure class and a summary", async () => {
@@ -99,39 +111,187 @@ describe("compound audit: report only", () => {
     expect(ok.stdout).toContain("0 files");
   });
 
-  test("--packs audits declared pack rules with the packs rule set and never fixes them", async () => {
+  test("--packs audits declared pack rules and READMEs with the packs rule set and never fixes them", async () => {
     const pack = tempDir("compound-cli-pack-");
-    writeFileSync(
-      join(pack, "README.md"),
-      "---\ntitle: A pack\napplies_when:\n  - a\n  - b\n  - c\ntags: [local-pack]\n---\n# Pack\n",
-    );
-    writeFileSync(
-      join(pack, "rule.md"),
-      '---\ntitle: A rule missing its record type\napplies_when:\n  - "Deciding how to gate a feature behind a flag"\ntags: [flipper]\nmodule: flags\nproblem_type: convention\n---\n# Rule\n',
-    );
+    writeFileSync(join(pack, "README.md"), packReadme("not-the-pack-id"));
+    writeFileSync(join(pack, "rule.md"), PACK_RULE.replace("record_type: rule\n", ""));
     const root = tempRepo({
       "docs/solutions/clean.md": readFileSync(
         join(FIXTURE_CORPUS, "docs/solutions/clean.md"),
         "utf8",
       ),
-      ".compound-engineering/config.yaml": `packs:\n  - source: ${pack}\n`,
+      ".compound-engineering/config.yaml": `packs:\n  - source: ${pack}\n${RECORD_TYPE_CONFIG}`,
     });
     const result = await runCli(["audit", "--root", root, "--packs", "--json"], { env: noKey });
     expect(result.code).toBe(EXIT.FINDINGS);
     const report = JSON.parse(result.stdout);
     const rule = report.files.find((f: { kind: string }) => f.kind === "pack_rule");
-    expect(rule.findings.map((f: { rule: string }) => f.rule)).toEqual(["record_type.invalid"]);
-    expect(report.files.some((f: { path: string }) => f.path.endsWith("README.md"))).toBe(false);
+    expect(rule.findings.map((f: { rule: string; source: string }) => [f.rule, f.source])).toEqual([
+      ["record_type.missing", "config.yaml"],
+    ]);
+    const readme = report.files.find((f: { kind: string }) => f.kind === "pack_readme");
+    expect(readme.path).toBe(`${basename(pack)}/README.md`);
+    expect(readme.findings.map((f: { rule: string }) => f.rule)).toEqual([
+      "pack.readme_tag_missing",
+    ]);
 
-    const fix = await runCli(["audit", "--root", root, "--packs", "--fix", "--dry-run", "--json"], {
-      env: withJudge,
-    });
+    const fix = await runCli(
+      ["audit", "--root", root, "--packs", "--fix", "--jev", "--dry-run", "--json"],
+      { env: withJudge },
+    );
     const fixed = JSON.parse(fix.stdout).files.find(
       (f: { kind: string }) => f.kind === "pack_rule",
     );
-    // Pack rule findings carry no fixer, so --fix proposes nothing and the cache is never written.
-    expect(fixed.fix).toBeUndefined();
+    // Declared pack files live in the cache: --fix names the pack's repository and writes nothing.
+    expect(fixed.fix.changes).toEqual([]);
+    expect(fixed.fix.needs_author[0].reason).toContain("pack's own repository");
     expect(readFileSync(join(pack, "rule.md"), "utf8")).not.toContain("record_type");
+  });
+
+  test("--pack-dir audits a repository of packs: README bounds, the pack id tag, a missing README, a pack without rules", async () => {
+    const root = tempRepo({
+      "packs/flags/README.md": packReadme("flags"),
+      "packs/flags/plain-checks.md": PACK_RULE,
+      "packs/flags/notes/nested.md": PACK_RULE,
+      "packs/thin/README.md": packReadme("thin").replace(
+        '  - "Naming a new flag for an experiment"\n',
+        "",
+      ),
+      "packs/thin/rule.md": PACK_RULE.replace("record_type: rule", "record_type: memo"),
+      "packs/readme-only/README.md": packReadme("readme-only"),
+      "packs/no-readme/rule.md": PACK_RULE,
+      ".compound-engineering/config.yaml": RECORD_TYPE_CONFIG,
+    });
+    const result = await runCli(["audit", "--root", root, "--pack-dir", "packs", "--json"], {
+      env: noKey,
+    });
+    expect(result.code).toBe(EXIT.FINDINGS);
+    const report = JSON.parse(result.stdout);
+    const byPath = Object.fromEntries(
+      report.files.map((f: { path: string; findings: Array<{ rule: string }> }) => [
+        f.path,
+        f.findings.map((x) => x.rule),
+      ]),
+    );
+    expect(byPath).toEqual({
+      "packs/flags/README.md": [],
+      "packs/flags/plain-checks.md": [],
+      "packs/thin/README.md": ["applies_when.too_few"],
+      "packs/thin/rule.md": ["record_type.invalid"],
+      "packs/readme-only/README.md": ["pack.no_rules"],
+      "packs/no-readme/rule.md": [],
+      "packs/no-readme/README.md": ["pack.readme_missing"],
+    });
+    expect(report.summary.files).toBe(7);
+    const text = await runCli(["audit", "--root", root, "--pack-dir", "packs"], { env: noKey });
+    expect(text.stdout).toContain(
+      'record_type "memo" is not in this repository\'s list (decision, rule, observation)  [rule from config.yaml]',
+    );
+    expect(text.stdout).toContain("applies_when has 2 items; at least 3 are needed  [no fixer]");
+    expect(text.stdout).toContain("pack.no_rules");
+    // The config can name the directories, so CI runs plain `audit`.
+    const configured = await runCli(["audit", "--root", root, "--json"], { env: noKey });
+    expect(configured.code).toBe(EXIT.MISSING_CORPUS);
+    writeFileSync(
+      join(root, ".compound-engineering/config.yaml"),
+      `${RECORD_TYPE_CONFIG}  audit:\n    pack_dirs: [packs]\n`,
+    );
+    const fromConfig = await runCli(["audit", "--root", root, "--json"], { env: noKey });
+    expect(JSON.parse(fromConfig.stdout).summary.files).toBe(7);
+    const missing = await runCli(["audit", "--root", root, "--pack-dir", "nowhere"], {
+      env: noKey,
+    });
+    expect(missing.code).toBe(EXIT.USAGE);
+    expect(missing.stderr).toContain("--pack-dir nowhere");
+  });
+
+  test("--stats reports field coverage and pack README coverage without changing the exit code", async () => {
+    const root = tempRepo({
+      "docs/solutions/clean.md": readFileSync(
+        join(FIXTURE_CORPUS, "docs/solutions/clean.md"),
+        "utf8",
+      ),
+      "docs/solutions/broken.md": "---\ntitle: [\n---\nbody\n",
+      "docs/solutions/thin.md":
+        "---\ntitle: A learning with only a title and a date\ndate: 2026-01-01\n---\nbody\n",
+      "packs/flags/README.md": packReadme("flags"),
+      "packs/flags/plain-checks.md": PACK_RULE,
+      "packs/flags/far.md": PACK_RULE.replace(
+        '  - "Deciding how to gate a feature behind a flag"',
+        '  - "Choosing a database index for a slow report query"',
+      ),
+      ".compound-engineering/config.yaml": RECORD_TYPE_CONFIG,
+    });
+    const result = await runCli(
+      ["audit", "--root", root, "--pack-dir", "packs", "--stats", "--json"],
+      { env: noKey },
+    );
+    const report = JSON.parse(result.stdout);
+    expect(report.stats.learnings).toEqual({
+      total: 3,
+      unparsable: 1,
+      with: { title: 2, applies_when: 1, symptoms: 0, tags: 1 },
+    });
+    expect(report.stats.readme_coverage).toHaveLength(1);
+    expect(report.stats.readme_coverage[0].path).toBe("packs/flags/far.md");
+    expect(report.stats.readme_coverage[0].lacking).toContain("database");
+    const text = await runCli(["audit", "--root", root, "--pack-dir", "packs", "--stats"], {
+      env: noKey,
+    });
+    expect(text.stdout).toContain("learnings: 3 (1 with unparsable frontmatter)");
+    expect(text.stdout).toContain("  with applies_when: 1 (33%)");
+    expect(text.stdout).toContain("readme coverage: 1 rule shares under 25%");
+    expect(text.stdout).toContain(
+      "packs/flags/far.md: 0% of its situation words appear in the README",
+    );
+  });
+
+  test("the config's audit section: exclude leaves indexes out, ignore drops rules, strict is the default, and errors stop the run", async () => {
+    const clean = readFileSync(join(FIXTURE_CORPUS, "docs/solutions/clean.md"), "utf8");
+    const weak = readFileSync(join(FIXTURE_CORPUS, "docs/solutions/title-weak.md"), "utf8");
+    const files = {
+      "docs/solutions/clean.md": clean,
+      "docs/solutions/weak.md": weak,
+      "docs/solutions/patterns/index.md": "# Not a learning\n",
+    };
+    const bare = await runCli(["audit", "--root", tempRepo(files), "--json"], { env: noKey });
+    expect(bare.code).toBe(EXIT.FINDINGS);
+    expect(JSON.parse(bare.stdout).summary).toMatchObject({ files: 3, errors: 1, warnings: 1 });
+
+    const policy = tempRepo({
+      ...files,
+      ".compound-engineering/config.yaml":
+        "compound:\n  audit:\n    exclude: [docs/solutions/patterns/]\n    ignore: [title.weak]\n",
+    });
+    const shaped = await runCli(["audit", "--root", policy, "--json"], { env: noKey });
+    expect(shaped.code).toBe(EXIT.OK);
+    const report = JSON.parse(shaped.stdout);
+    expect(report.summary).toMatchObject({ files: 2, errors: 0, warnings: 0 });
+    expect(report.excluded).toEqual(["docs/solutions/patterns/index.md"]);
+    expect((await runCli(["audit", "--root", policy], { env: noKey })).stdout).toContain(
+      "1 excluded by config",
+    );
+
+    const strict = tempRepo({
+      ...files,
+      ".compound-engineering/config.yaml":
+        "compound:\n  audit:\n    exclude: [docs/solutions/patterns/index.md]\n    strict: true\n",
+    });
+    const asConfigured = await runCli(["audit", "--root", strict, "--json"], { env: noKey });
+    expect(asConfigured.code).toBe(EXIT.FINDINGS);
+    expect(JSON.parse(asConfigured.stdout).strict).toBe(true);
+
+    const broken = tempRepo({
+      ...files,
+      ".compound-engineering/config.yaml":
+        "compound:\n  schema:\n    fields:\n      component:\n        closed: yes\n        values: []\n",
+    });
+    const refused = await runCli(["audit", "--root", broken], { env: noKey });
+    expect(refused.code).toBe(EXIT.USAGE);
+    expect(refused.stderr).toContain("compound: block of the config has problems");
+    expect(refused.stderr).toContain(
+      "`compound.schema.fields.component.values` must be a non-empty list",
+    );
   });
 
   test("doctor carries the audit counts", async () => {
@@ -149,11 +309,24 @@ describe("compound audit: report only", () => {
 });
 
 describe("compound audit --fix", () => {
-  test("without a key --fix exits 3 before reading any file; --dry-run and --yes need --fix; off a TTY --fix needs --yes or --dry-run", async () => {
+  test("plain --fix needs no key; --fix --jev without one exits 3 before reading any file; flag pairing is checked", async () => {
     const root = tempRepo({ "docs/solutions/x.md": "not even frontmatter\n" });
-    const noFix = await runCli(["audit", "--root", root, "--fix"], { env: noKey });
-    expect(noFix.code).toBe(EXIT.NOT_CONFIGURED);
-    expect(noFix.stderr).toContain("TYPESAFE_API_KEY");
+    const plain = await runCli(["audit", "--root", root, "--fix", "--dry-run", "--json"], {
+      env: noKey,
+    });
+    expect(plain.code).toBe(EXIT.FINDINGS);
+    expect(JSON.parse(plain.stdout).fixers).toEqual(["deterministic"]);
+    const noKeyJev = await runCli(["audit", "--root", root, "--fix", "--jev"], { env: noKey });
+    expect(noKeyJev.code).toBe(EXIT.NOT_CONFIGURED);
+    expect(noKeyJev.stderr).toContain("TYPESAFE_API_KEY");
+    const strayJev = await runCli(["audit", "--root", root, "--jev"], { env: noKey });
+    expect(strayJev.code).toBe(EXIT.USAGE);
+    expect(strayJev.stderr).toContain("--jev and --model only apply with --fix");
+    const modelWithoutJev = await runCli(["audit", "--root", root, "--fix", "--model", "x"], {
+      env: noKey,
+    });
+    expect(modelWithoutJev.code).toBe(EXIT.USAGE);
+    expect(modelWithoutJev.stderr).toContain("--fix --jev");
     const stray = await runCli(["audit", "--root", root, "--yes"], { env: noKey });
     expect(stray.code).toBe(EXIT.USAGE);
     const positional = await runCli(["audit", "--root", root, "docs/solutions/x.md"], {
@@ -167,7 +340,64 @@ describe("compound audit --fix", () => {
     expect(noTty.stderr).toContain("--dry-run");
   });
 
-  test("--dry-run shows every diff, writes nothing, and reports what would change and what needs an author", async () => {
+  test("deterministic --dry-run without a key: spelling, dates, tags, lists, titles, and quoting; Jev-only fields are named for --jev", async () => {
+    const root = corpusCopy();
+    const result = await runCli(["audit", "--root", root, "--fix", "--dry-run", "--json"], {
+      env: noKey,
+    });
+    expect(result.code).toBe(EXIT.FINDINGS);
+    const report = JSON.parse(result.stdout);
+    expect(report.fix).toBe("dry-run");
+    expect(report.fixers).toEqual(["deterministic"]);
+    expect(report.thresholds).toBeNull();
+    expect(report.usage).toBeNull();
+    const changes = report.files.flatMap(
+      (f: { fix?: { changes: Array<{ source: string; field: string }> } }) => f.fix?.changes ?? [],
+    );
+    expect(changes.length).toBeGreaterThan(5);
+    expect(changes.every((c: { source: string }) => c.source === "deterministic")).toBe(true);
+    const fields = new Set(changes.map((c: { field: string }) => c.field));
+    for (const field of ["problem_type", "date", "tags", "applies_when", "title"]) {
+      expect(fields.has(field), field).toBe(true);
+    }
+    const bug = report.files.find((f: { path: string }) => f.path.endsWith("bug-track-missing.md"));
+    expect(bug.fix.changes).toEqual([]);
+    expect(bug.fix.needs_author.map((n: { field: string; reason: string }) => n.reason)).toEqual([
+      "needs the judge: run --fix --jev (symptoms.missing)",
+      "needs the judge: run --fix --jev (root_cause.missing)",
+      "needs the judge: run --fix --jev (resolution_type.missing)",
+    ]);
+    // The projection is what a deterministic --yes run would leave: fewer files failing, some still.
+    expect(report.summary.after_fix.files_failing).toBeLessThan(report.summary.files_failing);
+    expect(report.summary.after_fix.files_failing).toBeGreaterThan(3);
+  });
+
+  test("deterministic --yes without a key writes, and a second run changes nothing", async () => {
+    const root = corpusCopy();
+    const first = await runCli(["audit", "--root", root, "--fix", "--yes", "--json"], {
+      env: noKey,
+    });
+    const report = JSON.parse(first.stdout);
+    expect(report.fix).toBe("applied");
+    expect(report.summary.fixes_applied).toBeGreaterThan(5);
+    expect(readFileSync(join(root, "docs/solutions/enum-casing.md"), "utf8")).toContain(
+      "problem_type: best_practice",
+    );
+    expect(readFileSync(join(root, "docs/solutions/tags-scalar.md"), "utf8")).toMatch(
+      /tags:\n {2}- rails/,
+    );
+    // Jev-only gaps stay: the bug-track learning still lacks its symptoms.
+    expect(readFileSync(join(root, "docs/solutions/bug-track-missing.md"), "utf8")).not.toContain(
+      "symptoms:",
+    );
+    const second = await runCli(["audit", "--root", root, "--fix", "--yes", "--json"], {
+      env: noKey,
+    });
+    expect(JSON.parse(second.stdout).summary.fixes_applied).toBe(0);
+    expect(second.code).toBe(first.code);
+  });
+
+  test("--fix --jev --dry-run shows every diff, writes nothing, and reports what would change and what needs an author", async () => {
     const root = corpusCopy();
     const before = Object.fromEntries(
       ["enum-casing.md", "bug-track-missing.md", "clean.md"].map((f) => [
@@ -175,11 +405,13 @@ describe("compound audit --fix", () => {
         statSync(join(root, "docs/solutions", f)).mtimeMs,
       ]),
     );
-    const result = await runCli(["audit", "--root", root, "--fix", "--dry-run", "--json"], {
-      env: withJudge,
-    });
+    const result = await runCli(
+      ["audit", "--root", root, "--fix", "--jev", "--dry-run", "--json"],
+      { env: withJudge },
+    );
     const report = JSON.parse(result.stdout);
     expect(report.fix).toBe("dry-run");
+    expect(report.fixers).toEqual(["deterministic", "jev"]);
     expect(result.code).toBe(EXIT.FINDINGS);
     expect(report.summary.fixes_proposed).toBeGreaterThan(10);
     expect(report.summary.fixes_applied).toBe(0);
@@ -214,7 +446,7 @@ describe("compound audit --fix", () => {
     );
   });
 
-  test("--yes writes, bodies stay byte-identical, the exit code reflects what remains, and a second run changes nothing", async () => {
+  test("--fix --jev --yes writes, bodies stay byte-identical, the exit code reflects what remains, and a second run changes nothing", async () => {
     const root = corpusCopy();
     const files = [
       "enum-casing.md",
@@ -227,7 +459,7 @@ describe("compound audit --fix", () => {
       files.map((f) => [f, bodyOf(readFileSync(join(root, "docs/solutions", f), "utf8"))]),
     );
 
-    const first = await runCli(["audit", "--root", root, "--fix", "--yes", "--json"], {
+    const first = await runCli(["audit", "--root", root, "--fix", "--jev", "--yes", "--json"], {
       env: withJudge,
     });
     const report = JSON.parse(first.stdout);
@@ -249,7 +481,7 @@ describe("compound audit --fix", () => {
     const unsafe = readFileSync(join(root, "docs/solutions/unsafe-scalar.md"), "utf8");
     expect(unsafe).toContain('title: "Retry budget #2 for the HTTP client"');
 
-    const second = await runCli(["audit", "--root", root, "--fix", "--yes", "--json"], {
+    const second = await runCli(["audit", "--root", root, "--fix", "--jev", "--yes", "--json"], {
       env: withJudge,
     });
     const again = JSON.parse(second.stdout);
@@ -268,14 +500,8 @@ describe("compound audit --fix", () => {
 
   test("an applied run reports no projection, even when a file was needs_author-only or a pack rule", async () => {
     const pack = tempDir("compound-cli-pack-");
-    writeFileSync(
-      join(pack, "README.md"),
-      "---\ntitle: A pack\napplies_when:\n  - a\n  - b\n  - c\ntags: [local-pack]\n---\n# Pack\n",
-    );
-    writeFileSync(
-      join(pack, "rule.md"),
-      '---\ntitle: A rule missing its record type\napplies_when:\n  - "Deciding how to gate a feature behind a flag"\ntags: [flipper]\nmodule: flags\nproblem_type: convention\n---\n# Rule\n',
-    );
+    writeFileSync(join(pack, "README.md"), packReadme(basename(pack)));
+    writeFileSync(join(pack, "rule.md"), PACK_RULE.replace("module: flags\n", ""));
     const root = tempRepo({
       "docs/solutions/tables.md": readFileSync(
         join(FIXTURE_CORPUS, "docs/solutions/applies-when-missing-no-prose.md"),
@@ -287,13 +513,20 @@ describe("compound audit --fix", () => {
       ),
       ".compound-engineering/config.yaml": `packs:\n  - source: ${pack}\n`,
     });
-    const applied = await runCli(["audit", "--root", root, "--packs", "--fix", "--yes", "--json"], {
-      env: withJudge,
-    });
+    const applied = await runCli(
+      ["audit", "--root", root, "--packs", "--fix", "--jev", "--yes", "--json"],
+      { env: withJudge },
+    );
     const report = JSON.parse(applied.stdout);
     expect(report.fix).toBe("applied");
     expect(report.summary.fixes_applied).toBeGreaterThan(0);
-    expect(report.summary.needs_author).toBe(1);
+    const needs = report.files.flatMap(
+      (f: { path: string; fix?: { needs_author: Array<{ field: string }> } }) =>
+        (f.fix?.needs_author ?? []).map((n) => `${f.path.split("/").pop()}:${n.field}`),
+    );
+    expect(needs).toContain("tables.md:applies_when");
+    expect(needs).toContain("rule.md:*");
+    expect(report.summary.needs_author).toBe(needs.length);
     expect(report.summary.after_fix).toBeNull();
     // The same corpus as a dry run does carry the projection.
     const dry = await runCli(
@@ -307,6 +540,7 @@ describe("compound audit --fix", () => {
           ),
         }),
         "--fix",
+        "--jev",
         "--dry-run",
         "--json",
       ],
@@ -323,9 +557,10 @@ describe("compound audit --fix", () => {
     const rejecting = startFakeTypeSafe({ noul: 0.1, scoreLevel: 0 });
     try {
       const root = corpusCopy();
-      const result = await runCli(["audit", "--root", root, "--fix", "--dry-run", "--json"], {
-        env: { ...withJudge, TYPESAFE_BASE_URL: rejecting.url },
-      });
+      const result = await runCli(
+        ["audit", "--root", root, "--fix", "--jev", "--dry-run", "--json"],
+        { env: { ...withJudge, TYPESAFE_BASE_URL: rejecting.url } },
+      );
       const report = JSON.parse(result.stdout);
       const generic = report.files.find((f: { path: string }) =>
         f.path.endsWith("applies-when-generic.md"),
@@ -348,7 +583,9 @@ describe("compound audit --fix", () => {
   test("one real file end to end against recorded answers", async () => {
     const root = corpusCopy();
     const env = { HOME, ...cassetteEnv(resolve(import.meta.dir, "fixtures/cassettes/audit")) };
-    const result = await runCli(["audit", "--root", root, "--fix", "--yes", "--json"], { env });
+    const result = await runCli(["audit", "--root", root, "--fix", "--jev", "--yes", "--json"], {
+      env,
+    });
     expect(result.code).toBe(EXIT.FINDINGS);
     const report = JSON.parse(result.stdout);
     const bug = report.files.find((f: { path: string }) => f.path.endsWith("bug-track-missing.md"));

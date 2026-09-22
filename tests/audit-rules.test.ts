@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { firstHeading, splitDocument, unsafeScalars } from "../src/audit/document.ts";
-import { isGenericAppliesWhen, isWeakTitle, runRules } from "../src/audit/rules.ts";
+import { bareLiterals, firstHeading, splitDocument, unsafeScalars } from "../src/audit/document.ts";
+import { buildEffectiveSchema } from "../src/audit/effective-schema.ts";
+import {
+  type DocumentKind,
+  isGenericAppliesWhen,
+  isWeakTitle,
+  type RuleContext,
+  runRules,
+} from "../src/audit/rules.ts";
 import { normalizeEnum, normalizeTag, PROBLEM_TYPES, trackOf } from "../src/audit/schema.ts";
 import { buildVocabulary } from "../src/audit/vocabulary.ts";
 
@@ -27,9 +34,10 @@ body
 function rules(
   text: string,
   path = "docs/solutions/x.md",
-  kind: "solution" | "pack_rule" = "solution",
+  kind: DocumentKind = "solution",
+  extra: Partial<RuleContext> = {},
 ) {
-  return runRules(splitDocument(text), { path, kind }).map((f) => f.rule);
+  return runRules(splitDocument(text), { path, kind, ...extra }).map((f) => f.rule);
 }
 
 function withFrontmatter(lines: string, body = "# Title\n\nbody\n"): string {
@@ -79,6 +87,21 @@ describe("splitDocument", () => {
       'title: Retry budget #2\nnote: a: b\nlist:\n  - `code` first\n  - "quoted #ok"\nfine: yes',
     );
     expect(bad).toEqual(["title: Retry budget #2", "note: a: b", "- `code` first"]);
+  });
+
+  test("bare literals: null, booleans, and numbers unquoted in string fields and list items, with list positions", () => {
+    expect(
+      bareLiterals(
+        'title: true\nmodule: 1.0\ncomponent: "yes"\ndate: 2026-01-01\ntags: [inbox, null, ~]\nsymptoms:\n  - no\n  - "off"\n  - 42\nbody: |\n  yes\n',
+      ),
+    ).toEqual([
+      { field: "title", value: "true" },
+      { field: "module", value: "1.0" },
+      { field: "tags", value: "null", index: 1 },
+      { field: "tags", value: "~", index: 2 },
+      { field: "symptoms", value: "no", index: 0 },
+      { field: "symptoms", value: "42", index: 2 },
+    ]);
   });
 
   test("the first H1 outside code fences becomes a title candidate", () => {
@@ -234,19 +257,301 @@ describe("each rule fires on its fixture and nothing else", () => {
     ]);
   });
 
-  test("pack rules use the packs validator's rule set", () => {
+  test("pack rules use the packs validator's rule set; record_type is the repository's own field", () => {
     const rule = withFrontmatter(
       'title: Prefer plain flipper checks\napplies_when:\n  - "Deciding how to gate a feature behind a flag"\ntags: [flipper]\nmodule: flags\nproblem_type: convention\nrecord_type: rule',
     );
     expect(rules(rule, "pack/rule.md", "pack_rule")).toEqual([]);
-    expect(
-      rules(rule.replace("record_type: rule", "record_type: note"), "pack/rule.md", "pack_rule"),
-    ).toEqual(["record_type.invalid"]);
     expect(rules(rule.replace("tags: [flipper]\n", ""), "pack/rule.md", "pack_rule")).toEqual([
       "tags.missing",
     ]);
+    expect(rules(rule.replace("module: flags\n", ""), "pack/rule.md", "pack_rule")).toEqual([
+      "module.missing",
+    ]);
+    expect(
+      rules(
+        rule.replace("problem_type: convention", "problem_type: rule"),
+        "pack/rule.md",
+        "pack_rule",
+      ),
+    ).toEqual(["problem_type.invalid"]);
     // Pack rules need no date, component, or severity.
     expect(rules(rule, "pack/rule.md", "pack_rule")).not.toContain("date.missing");
+    // compound-packs declares record_type in its config; the CLI's defaults do not know it.
+    const { schema, errors } = buildEffectiveSchema([
+      {
+        name: "record_type",
+        layer: "config.yaml",
+        label: "config.yaml:5",
+        override: {
+          type: "enum",
+          values: ["decision", "rule", "observation"],
+          required: true,
+          kinds: ["pack_rule"],
+        },
+      },
+    ]);
+    expect(errors).toEqual([]);
+    const options = { schema, ignore: new Set<string>() };
+    expect(rules(rule, "pack/rule.md", "pack_rule", { options })).toEqual([]);
+    const findings = runRules(
+      splitDocument(rule.replace("record_type: rule", "record_type: note")),
+      { path: "pack/rule.md", kind: "pack_rule", options },
+    );
+    expect(findings.map((f) => [f.rule, f.source])).toEqual([
+      ["record_type.invalid", "config.yaml"],
+    ]);
+    expect(
+      rules(rule.replace("record_type: rule\n", ""), "pack/rule.md", "pack_rule", { options }),
+    ).toEqual(["record_type.missing"]);
+    // The declaration names pack rules only; a learning is not asked for it.
+    expect(rules(CLEAN, "docs/solutions/x.md", "solution", { options })).toEqual([]);
+  });
+
+  test("a pack README needs 3 to 8 situations and the pack id among its tags", () => {
+    const readme = withFrontmatter(
+      'title: Flipper conventions for Cora\napplies_when:\n  - "Deciding how to gate a feature behind a flag"\n  - "Removing a flag after its rollout finished"\n  - "Naming a new flag for an experiment"\ntags: [flipper, cora-flags]',
+    );
+    const ctx = { packId: "cora-flags" };
+    expect(rules(readme, "packs/cora-flags/README.md", "pack_readme", ctx)).toEqual([]);
+    expect(
+      rules(
+        readme.replace('  - "Naming a new flag for an experiment"\n', ""),
+        "p/README.md",
+        "pack_readme",
+        ctx,
+      ),
+    ).toEqual(["applies_when.too_few"]);
+    expect(
+      rules(
+        readme.replace("tags: [flipper, cora-flags]", "tags: [flipper]"),
+        "p/README.md",
+        "pack_readme",
+        ctx,
+      ),
+    ).toEqual(["pack.readme_tag_missing"]);
+    expect(
+      rules(readme.replace("tags: [flipper, cora-flags]\n", ""), "p/README.md", "pack_readme", ctx),
+    ).toEqual(["tags.missing"]);
+    expect(
+      rules(
+        readme.replace(/applies_when:[\s\S]*?tags:/, "tags:"),
+        "p/README.md",
+        "pack_readme",
+        ctx,
+      ),
+    ).toEqual(["applies_when.missing"]);
+    // A README needs no module, problem_type, or date.
+    expect(rules(readme, "p/README.md", "pack_readme", ctx)).not.toContain("module.missing");
+  });
+
+  test("rails_version and framework_version: X.Y.Z, bug track only; root_cause must be a scalar", () => {
+    const bug = variant("problem_type", "problem_type: runtime_error").replace(
+      "\n---\n#",
+      "\nsymptoms:\n  - Raises a unique index error\nroot_cause: concurrency\nresolution_type: code_fix\n---\n#",
+    );
+    expect(
+      rules(bug.replace("severity: medium", 'severity: medium\nrails_version: "8.1.3"')),
+    ).toEqual([]);
+    expect(
+      rules(bug.replace("severity: medium", 'severity: medium\nrails_version: "8.1"')),
+    ).toEqual(["rails_version.invalid"]);
+    expect(
+      rules(CLEAN.replace("severity: medium", 'severity: medium\nrails_version: "8.1.3"')),
+    ).toEqual(["rails_version.bug_track_only"]);
+    expect(
+      rules(CLEAN.replace("severity: medium", 'severity: medium\nframework_version: "1.2.3"')),
+    ).toEqual(["framework_version.bug_track_only"]);
+    expect(
+      rules(CLEAN.replace("severity: medium", "severity: medium\nroot_cause: [a, b]")),
+    ).toEqual(["root_cause.not_a_string"]);
+  });
+});
+
+/** Cora's `validate_solutions_frontmatter.py --self-test` document, verbatim. */
+const CORA_GOOD_DOC = `---
+title: "Example learning"
+date: 2026-09-22
+problem_type: ui_bug
+component: rails_view
+severity: low
+module: inbox
+symptoms:
+  - "The archive button needs two taps on iOS"
+root_cause: wrong_api
+resolution_type: code_fix
+applies_when:
+  - "Adding hover-only controls to an inbox row that must also work on touch"
+tags: [inbox, touch, hover]
+---
+
+# Example learning
+`;
+
+describe("Cora's validator self-test cases, under Cora's config", () => {
+  const { schema, errors } = buildEffectiveSchema([
+    {
+      name: "component",
+      layer: "config.yaml",
+      label: "config.yaml:1",
+      override: { mode: "replace", closed: true, values: ["rails_view", "brief_system"] },
+    },
+    {
+      name: "root_cause",
+      layer: "config.yaml",
+      label: "config.yaml:2",
+      override: { mode: "replace", closed: true, values: ["wrong_api", "concurrency"] },
+    },
+    {
+      name: "applies_when",
+      layer: "config.yaml",
+      label: "config.yaml:3",
+      override: { required: true, maxItems: 5 },
+    },
+  ]);
+  const options = { schema, ignore: new Set(["title.weak"]) };
+  const on = (doc: string) =>
+    runRules(splitDocument(doc), { path: "docs/solutions/case.md", kind: "solution", options }).map(
+      (f) => f.rule,
+    );
+  const aw =
+    'applies_when:\n  - "Adding hover-only controls to an inbox row that must also work on touch"\n';
+  const symptom = '  - "The archive button needs two taps on iOS"';
+  const cases: Array<[string, string, string | null]> = [
+    ["template-shaped bug doc passes", CORA_GOOD_DOC, null],
+    ["missing applies_when", CORA_GOOD_DOC.replace(aw, ""), "applies_when.missing"],
+    [
+      "scalar applies_when",
+      CORA_GOOD_DOC.replace(aw, 'applies_when: "Adding hover-only controls"\n'),
+      "applies_when.not_a_list",
+    ],
+    [
+      "unknown problem_type",
+      CORA_GOOD_DOC.replace("problem_type: ui_bug", "problem_type: ui-bug"),
+      "problem_type.invalid",
+    ],
+    [
+      "bug track without symptoms",
+      CORA_GOOD_DOC.replace(`symptoms:\n${symptom}\n`, ""),
+      "symptoms.missing",
+    ],
+    [
+      "comment truncation in a list item",
+      CORA_GOOD_DOC.replace(symptom, "  - AppSignal incident #1370 fires weekly"),
+      "frontmatter.unsafe_scalar",
+    ],
+    [
+      "bare null tag",
+      CORA_GOOD_DOC.replace("tags: [inbox, touch, hover]", "tags: [inbox, null, hover]"),
+      "frontmatter.bare_literal",
+    ],
+    [
+      "unterminated quote",
+      CORA_GOOD_DOC.replace('title: "Example learning"', 'title: "Example learning'),
+      "frontmatter.invalid_yaml",
+    ],
+    [
+      "unescaped inner single quote",
+      CORA_GOOD_DOC.replace('title: "Example learning"', "title: 'It's broken'"),
+      "frontmatter.invalid_yaml",
+    ],
+    [
+      "trailing text after a quoted item",
+      CORA_GOOD_DOC.replace(symptom, '  - "The archive button" needs two taps'),
+      "frontmatter.invalid_yaml",
+    ],
+    // A real YAML parser rejects a plain scalar opening with a reserved indicator outright.
+    [
+      "backtick scalar",
+      CORA_GOOD_DOC.replace("module: inbox", "module: `inbox`"),
+      "frontmatter.invalid_yaml",
+    ],
+    [
+      "tab indentation",
+      CORA_GOOD_DOC.replace(symptom, '\t- "The archive button needs two taps on iOS"'),
+      "frontmatter.invalid_yaml",
+    ],
+    [
+      "zero-indent block list is accepted",
+      CORA_GOOD_DOC.replace("tags: [inbox, touch, hover]", "tags:\n- inbox\n- touch"),
+      null,
+    ],
+    [
+      "hyphenated key is accepted",
+      CORA_GOOD_DOC.replace(
+        "tags: [inbox, touch, hover]",
+        "tags: [inbox, touch, hover]\nrelated-pr: 1234",
+      ),
+      null,
+    ],
+    [
+      "colon-space in an unquoted item",
+      CORA_GOOD_DOC.replace(symptom, "  - order(created_at: :desc) returns the first row"),
+      "frontmatter.unsafe_scalar",
+    ],
+    [
+      "too many applies_when",
+      CORA_GOOD_DOC.replace("applies_when:\n", `applies_when:\n${'  - "one"\n'.repeat(5)}`),
+      "applies_when.too_many",
+    ],
+    [
+      "rails_version on knowledge track",
+      CORA_GOOD_DOC.replace("problem_type: ui_bug", "problem_type: convention").replace(
+        "severity: low",
+        "severity: low\nrails_version: 8.1.3",
+      ),
+      "rails_version.bug_track_only",
+    ],
+    ["no frontmatter", "# Just a heading\n", "frontmatter.missing"],
+    [
+      "boolean title",
+      CORA_GOOD_DOC.replace('title: "Example learning"', "title: true"),
+      "frontmatter.bare_literal",
+    ],
+    [
+      "numeric module",
+      CORA_GOOD_DOC.replace("module: inbox", "module: 123"),
+      "frontmatter.bare_literal",
+    ],
+    // Cora's closed lists, which its script hard-coded and its config now declares.
+    [
+      "component outside Cora's list",
+      CORA_GOOD_DOC.replace("component: rails_view", "component: api"),
+      "component.invalid",
+    ],
+    [
+      "root_cause outside Cora's list",
+      CORA_GOOD_DOC.replace("root_cause: wrong_api", "root_cause: gremlins"),
+      "root_cause.invalid",
+    ],
+  ];
+
+  test("the config builds without errors", () => {
+    expect(errors).toEqual([]);
+  });
+
+  for (const [name, doc, expected] of cases) {
+    test(name, () => {
+      const found = on(doc);
+      if (expected === null) expect(found).toEqual([]);
+      else expect(found).toContain(expected);
+    });
+  }
+
+  test("a failing case is also failing under --strict semantics only when a finding is an error or strict", () => {
+    const findings = runRules(splitDocument(CORA_GOOD_DOC.replace(aw, "")), {
+      path: "docs/solutions/case.md",
+      kind: "solution",
+      options,
+    });
+    // Cora requires applies_when, so its absence is an error from the repository's config, not a warning.
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        rule: "applies_when.missing",
+        severity: "error",
+        source: "config.yaml",
+      }),
+    );
   });
 });
 

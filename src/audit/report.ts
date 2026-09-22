@@ -1,4 +1,5 @@
 import type { UsageReport } from "../judge/usage.ts";
+import type { AuditStats } from "./audit.ts";
 import type { NeedsAuthor } from "./fixers/jev.ts";
 import type { DocumentKind, Finding } from "./rules.ts";
 import type { FieldChange } from "./writer.ts";
@@ -38,10 +39,16 @@ export type AuditReport = {
   schema_version: 1;
   strict: boolean;
   fix: "off" | "dry-run" | "applied" | "declined";
-  /** The bars the Jev fixers hold answers to; null without --fix. */
+  /** Which fixer classes ran: none without --fix, deterministic by default, Jev with --jev. */
+  fixers: Array<"deterministic" | "jev">;
+  /** The bars the Jev fixers hold answers to; null without --fix --jev. */
   thresholds: { choice: number; tag: number; situation: number; symptom: number } | null;
   summary: AuditSummary;
   files: FileAudit[];
+  /** Files under solutions/ the config's `compound.audit.exclude` left out. */
+  excluded: string[];
+  /** With --stats: field coverage and pack README coverage; null otherwise. */
+  stats: AuditStats | null;
   usage: UsageReport | null;
   warnings: string[];
 };
@@ -116,8 +123,12 @@ export function renderText(report: AuditReport): string {
       continue;
     lines.push(file.path);
     for (const f of findings) {
+      const notes = [
+        ...(f.source === "default" ? [] : [`rule from ${f.source}`]),
+        ...(f.fixable ? [] : ["no fixer"]),
+      ];
       lines.push(
-        `  ${f.severity.padEnd(7)} ${f.rule.padEnd(28)} ${f.message}${f.fixable ? "" : "  [no fixer]"}`,
+        `  ${f.severity.padEnd(7)} ${f.rule.padEnd(28)} ${f.message}${notes.length ? `  [${notes.join("; ")}]` : ""}`,
       );
     }
     if (file.fix) {
@@ -156,7 +167,11 @@ export function renderText(report: AuditReport): string {
     }
   }
   if (report.strict) parts.push("strict");
+  if (report.excluded.length) {
+    parts.push(`${report.excluded.length} excluded by config`);
+  }
   lines.push(`compound audit: ${parts.join(", ")}`);
+  if (report.stats) lines.push(...renderStats(report.stats));
   if (report.usage && report.usage.requests > 0) {
     lines.push(
       `usage: ${report.usage.requests} requests, ${report.usage.input_tokens.toLocaleString("en-US")} input tokens, $${report.usage.estimated_usd.toFixed(5)}, model ${report.usage.model ?? "n/a"}`,
@@ -164,6 +179,28 @@ export function renderText(report: AuditReport): string {
   }
   for (const warning of report.warnings) lines.push(`warning: ${warning}`);
   return `${lines.join("\n")}\n`;
+}
+
+function renderStats(stats: AuditStats): string[] {
+  const lines: string[] = [];
+  const l = stats.learnings;
+  if (l.total) {
+    lines.push(`learnings: ${l.total} (${l.unparsable} with unparsable frontmatter)`);
+    for (const [key, n] of Object.entries(l.with)) {
+      lines.push(`  with ${key}: ${n} (${Math.floor((n * 100) / l.total)}%)`);
+    }
+  }
+  if (!stats.packs) return lines;
+  const gaps = stats.readme_coverage;
+  lines.push(
+    `readme coverage: ${gaps.length} rule${gaps.length === 1 ? " shares" : "s share"} under 25% of its situation words with its README`,
+  );
+  for (const gap of gaps) {
+    lines.push(
+      `  ${gap.path}: ${Math.round(gap.ratio * 100)}% of its situation words appear in the README; lacking ${gap.lacking.join(", ")}`,
+    );
+  }
+  return lines;
 }
 
 function indent(text: string, prefix: string): string {

@@ -1,8 +1,10 @@
 /**
- * The learning frontmatter schema, transcribed from the Compound Engineering
+ * The CLI's default schema values, transcribed from the Compound Engineering
  * plugin's `skills/ce-compound/references/schema.yaml` (commit c152896) and the
- * pack rule set from compound-packs `tools/validate-packs.py`. Embedded on
- * purpose: locating an installed plugin at runtime is brittle across hosts.
+ * pack bounds from compound-packs `tools/validate-packs.py`. Embedded on
+ * purpose: locating an installed plugin at runtime is brittle across hosts. A
+ * later release loads the plugin schema from a pinned ref; `effective-schema.ts`
+ * is where these defaults meet a repository's own `compound.schema.fields`.
  */
 
 export const BUG_PROBLEM_TYPES = [
@@ -69,8 +71,6 @@ export const RESOLUTION_TYPES = [
   "seed_data_update",
 ] as const;
 
-export const RECORD_TYPES = ["decision", "rule", "observation"] as const;
-
 /** Open vocabulary: the corpus's own values come first; these are the fallback. */
 export const SUGGESTED_COMPONENTS = [
   "rails_model",
@@ -115,6 +115,7 @@ export const SUGGESTED_ROOT_CAUSES = [
 export const LIMITS = {
   appliesWhenMax: 5,
   packAppliesWhenMax: 8,
+  packReadmeAppliesWhenMin: 3,
   symptomsMax: 5,
   tagsMax: 8,
   itemChars: 300,

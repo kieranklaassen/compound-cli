@@ -1,5 +1,9 @@
 /**
- * How close does `audit --fix` get to hand-written frontmatter?
+ * How close does `audit --fix --jev` get to hand-written frontmatter?
+ *
+ * The deterministic fixers alone cannot supply a stripped value (they normalise
+ * what is there), so this measures the Jev fixers; the numbers it prints are
+ * the "with Jev" column of the agreement table.
  *
  * For every file whose chosen fields are present and valid, strip those fields
  * from an in-memory copy, run the fixers (vocabulary built from every other
@@ -16,7 +20,7 @@
  */
 import { parseArgs } from "node:util";
 import { noul } from "@typesafe-ai/sdk";
-import { loadAuditCorpus, type AuditedFile } from "../../src/audit/audit.ts";
+import { loadAuditCorpus, type AuditedFile, contextFor } from "../../src/audit/audit.ts";
 import { splitDocument } from "../../src/audit/document.ts";
 import { runRules } from "../../src/audit/rules.ts";
 import { buildVocabulary } from "../../src/audit/vocabulary.ts";
@@ -38,7 +42,7 @@ const { values } = parseArgs({
 const fields = (values.fields ?? "").split(",").map((f) => f.trim()).filter(Boolean);
 const ctx = processContext();
 const workspace = openWorkspace(ctx.cwd, ctx.env, values.root);
-const corpus = loadAuditCorpus(workspace, { packs: false });
+const corpus = loadAuditCorpus(workspace, { packs: false, packDirs: [] });
 const judge = judgeFromEnv(ctx.env, {});
 
 type Comparison = {
@@ -61,7 +65,7 @@ function stringList(value: unknown): string[] {
 
 function eligible(file: AuditedFile): boolean {
   if (file.doc.parseError || !file.doc.hasFrontmatter) return false;
-  const findings = runRules(file.doc, { path: file.path, kind: file.kind });
+  const findings = runRules(file.doc, contextFor(file, corpus.options));
   if (findings.some((f) => f.field !== null && fields.includes(f.field))) return false;
   return fields.every((f) => {
     const value = file.doc.data[f];
@@ -81,9 +85,8 @@ await Promise.all(
       const removals: FieldChange[] = fields.map((f) => ({ field: f, value: undefined, source: "deterministic", note: "" }));
       const stripped: AuditedFile = { ...file, doc: splitDocument(rewriteFrontmatter(file.doc, removals).text) };
       const [audit] = await proposeFixes(
-        [{ path: stripped.path, kind: stripped.kind, findings: runRules(stripped.doc, { path: stripped.path, kind: stripped.kind }) }],
-        [stripped],
-        vocabulary,
+        [{ path: stripped.path, kind: stripped.kind, findings: runRules(stripped.doc, contextFor(stripped, corpus.options)) }],
+        { files: [stripped], vocabulary, options: corpus.options },
         judge,
       );
       const changes = new Map((audit?.fix?.changes ?? []).map((c) => [c.field, c.value]));

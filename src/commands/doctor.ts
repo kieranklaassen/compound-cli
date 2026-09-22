@@ -224,8 +224,8 @@ export function renderDoctor(report: DoctorReport): string {
 }
 
 function auditCounts(workspace: Workspace): DoctorReport["audit"] {
-  const corpus = loadAuditCorpus(workspace, { packs: false });
-  const summary = summarize(auditFiles(corpus.files), false);
+  const corpus = loadAuditCorpus(workspace, { packs: false, packDirs: [] });
+  const summary = summarize(auditFiles(corpus), corpus.config.audit.strict);
   return {
     files: summary.files,
     files_failing: summary.files_failing,

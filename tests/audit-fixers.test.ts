@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Questions } from "@typesafe-ai/sdk";
 import { splitDocument } from "../src/audit/document.ts";
+import { buildEffectiveSchema } from "../src/audit/effective-schema.ts";
 import {
   dateFromGit,
   dateFromName,
@@ -167,6 +168,34 @@ describe("deterministic fixers", () => {
     expect(changes2.find((c) => c.field === "applies_when")?.value).toHaveLength(2);
   });
 
+  test("bare YAML literals are put back as strings and written quoted, once", () => {
+    const text =
+      '---\ntitle: true\ndate: 2026-01-01\nmodule: 123\ncomponent: api\nproblem_type: best_practice\nseverity: low\napplies_when:\n  - "Adding retry with backoff to an HTTP client that gets throttled"\ntags: [inbox, null, yes]\n---\n# Title\n';
+    const doc = splitDocument(text);
+    const findings = runRules(doc, { path: "docs/solutions/x.md", kind: "solution" });
+    expect(
+      findings.filter((f) => f.rule === "frontmatter.bare_literal").map((f) => f.field),
+    ).toEqual(["title", "module", "tags", "tags"]);
+    expect(findings.map((f) => f.rule)).toContain("tags.not_strings");
+    const changes = deterministicFixes(doc, findings, NO_GIT);
+    expect(changes.map((c) => [c.field, c.value])).toEqual([
+      ["title", "true"],
+      ["module", "123"],
+      ["tags", ["inbox", "null", "yes"]],
+    ]);
+    const rewritten = rewriteFrontmatter(doc, changes);
+    expect(rewritten.frontmatterText).toContain('title: "true"');
+    expect(rewritten.frontmatterText).toContain('module: "123"');
+    expect(rewritten.frontmatterText).toContain('tags: [inbox, "null", "yes"]');
+    const again = splitDocument(rewritten.text);
+    expect(again.data.title).toBe("true");
+    expect(again.data.tags).toEqual(["inbox", "null", "yes"]);
+    // Idempotent: nothing left to fix, nothing changes on a second pass.
+    const remaining = runRules(again, { path: "docs/solutions/x.md", kind: "solution" });
+    expect(remaining.map((f) => f.rule)).toEqual(["title.weak"]);
+    expect(deterministicFixes(again, remaining, NO_GIT)).toEqual([]);
+  });
+
   test("a value cut at ' #' is recovered from the raw text and quoted", () => {
     expect(
       recoverUnsafeScalars(
@@ -295,18 +324,18 @@ describe("jev fixers", () => {
     );
     expect(result.changes).toEqual([
       {
-        field: "severity",
-        value: "low",
-        source: "jev",
-        score: 0.8,
-        note: "chosen among the schema's values",
-      },
-      {
         field: "module",
         value: "sync",
         source: "jev",
         score: 0.9,
         note: "chosen among the corpus's values",
+      },
+      {
+        field: "severity",
+        value: "low",
+        source: "jev",
+        score: 0.8,
+        note: "chosen among the schema's values",
       },
     ]);
     expect(result.needsAuthor).toEqual([
@@ -316,6 +345,63 @@ describe("jev fixers", () => {
       },
     ]);
     expect(judge.asked).toHaveLength(1);
+  });
+
+  test("a repository's own list is what the judge chooses from, for a missing and for an out-of-list value", async () => {
+    // Cora-style: component closed to the repository's list, and a custom enum on learnings.
+    const { schema } = buildEffectiveSchema([
+      {
+        name: "component",
+        layer: "config.yaml",
+        label: "config.yaml:3",
+        override: { values: ["brief_system", "email_processing"], mode: "replace", closed: true },
+      },
+      {
+        name: "record_type",
+        layer: "config.yaml",
+        label: "config.yaml:9",
+        override: { type: "enum", values: ["decision", "rule"], required: true },
+      },
+    ]);
+    const doc = splitDocument(
+      '---\ntitle: A learning whose component is not on the list\ndate: 2026-01-01\nmodule: inbox\ncomponent: api\nproblem_type: convention\nseverity: low\napplies_when:\n  - "Deciding where a brief\'s summary paragraph is assembled"\ntags: [inbox]\n---\n# Body\n',
+    );
+    const findings = runRules(doc, {
+      path: "docs/solutions/x.md",
+      kind: "solution",
+      options: { schema, ignore: new Set() },
+    });
+    expect(findings.map((f) => [f.rule, f.source])).toEqual([
+      ["component.invalid", "config.yaml"],
+      ["record_type.missing", "config.yaml"],
+    ]);
+    const judge = scriptedJudge((key) =>
+      key === "component" ? choiceAnswer("email_processing", 0.9) : choiceAnswer("decision", 0.8),
+    );
+    const result = await jevFixes(judge, doc, "x.md", findings, VOCABULARY, schema.solution);
+    expect(result.changes).toEqual([
+      {
+        field: "component",
+        value: "email_processing",
+        source: "jev",
+        score: 0.9,
+        note: "chosen among the repository's values",
+      },
+      {
+        field: "record_type",
+        value: "decision",
+        source: "jev",
+        score: 0.8,
+        note: "chosen among the repository's values",
+      },
+    ]);
+    // The Choice offered exactly the repository's values, not the corpus's or the schema's suggestions.
+    const asked = judge.asked[0] as Record<string, { criteria: Record<string, string> }>;
+    expect(Object.keys(asked.component?.criteria ?? {})).toEqual([
+      "brief_system",
+      "email_processing",
+    ]);
+    expect(Object.keys(asked.record_type?.criteria ?? {})).toEqual(["decision", "rule"]);
   });
 
   test("a corpus with one module value is not a choice", async () => {

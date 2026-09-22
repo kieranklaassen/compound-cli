@@ -7,17 +7,9 @@ import {
   auditNoulRequest,
 } from "../../judge/questions.ts";
 import type { SplitDocument } from "../document.ts";
-import { type Finding, isGenericAppliesWhen } from "../rules.ts";
-import {
-  LIMITS,
-  PROBLEM_TYPE_DESCRIPTIONS,
-  PROBLEM_TYPES,
-  RESOLUTION_TYPES,
-  SEVERITIES,
-  SUGGESTED_COMPONENTS,
-  SUGGESTED_ROOT_CAUSES,
-  TAG_PATTERN,
-} from "../schema.ts";
+import { DEFAULT_SCHEMA, type EffectiveField } from "../effective-schema.ts";
+import { type Finding, isCorpusVocabulary, isGenericAppliesWhen } from "../rules.ts";
+import { LIMITS, PROBLEM_TYPE_DESCRIPTIONS, TAG_PATTERN } from "../schema.ts";
 import type { Vocabulary } from "../vocabulary.ts";
 import type { FieldChange } from "../writer.ts";
 import { extractSituations, extractSymptoms } from "./extract.ts";
@@ -83,57 +75,61 @@ export async function jevFixes(
   path: string,
   findings: Finding[],
   vocabulary: Vocabulary,
+  fields: EffectiveField[] = DEFAULT_SCHEMA.solution,
 ): Promise<JevFixResult> {
   const rules = new Set(findings.map((f) => f.rule));
   const changes: FieldChange[] = [];
   const needsAuthor: NeedsAuthor[] = [];
   const document = documentView(doc, path);
+  const tagPattern = new RegExp(
+    fields.find((f) => f.name === "tags")?.pattern ?? TAG_PATTERN.source,
+  );
 
+  // One Choice per value field the rules flagged, over the effective values: a closed
+  // field's list (the schema's, or the repository's), else the corpus's own values,
+  // else the schema's suggestions. The repository's list always wins over the defaults.
   const choices: AuditChoice[] = [];
-  if (rules.has("problem_type.missing") || rules.has("problem_type.invalid")) {
-    choices.push({
-      field: "problem_type",
-      options: plain(PROBLEM_TYPES),
-      descriptions: PROBLEM_TYPE_DESCRIPTIONS,
-      tagged: false,
-      usage: vocabulary.enum_usage.problem_type,
-    });
-  }
-  if (rules.has("severity.missing") || rules.has("severity.invalid")) {
-    choices.push({
-      field: "severity",
-      options: plain(SEVERITIES),
-      tagged: false,
-      usage: vocabulary.enum_usage.severity,
-    });
-  }
-  if (rules.has("resolution_type.missing") || rules.has("resolution_type.invalid")) {
-    choices.push({
-      field: "resolution_type",
-      options: plain(RESOLUTION_TYPES),
-      tagged: false,
-      usage: vocabulary.enum_usage.resolution_type,
-    });
-  }
-  for (const [field, fallback] of [
-    ["module", []],
-    ["component", SUGGESTED_COMPONENTS],
-    ["root_cause", SUGGESTED_ROOT_CAUSES],
-  ] as const) {
-    if (!rules.has(`${field}.missing`)) continue;
-    const corpus = vocabulary[field];
+  for (const field of fields) {
+    if (field.type === "list" || field.type === "date") continue;
+    const name = field.name;
+    // A value field the judge can settle: it has a list to choose from (the schema's,
+    // the repository's, or the corpus's). Title has none; it is the deterministic fixer's.
+    const judged = field.closed || field.values.length > 0 || isCorpusVocabulary(name);
+    if (!judged || !(rules.has(`${name}.missing`) || rules.has(`${name}.invalid`))) continue;
+    const enumUsage = (vocabulary.enum_usage as Record<string, Record<string, number> | undefined>)[
+      name
+    ];
+    if (field.closed) {
+      const choice: AuditChoice = { field: name, options: plain(field.values), tagged: false };
+      if (name === "problem_type") {
+        choice.descriptions = Object.fromEntries(
+          field.values
+            .filter((v) => v in PROBLEM_TYPE_DESCRIPTIONS)
+            .map((v) => [
+              v,
+              PROBLEM_TYPE_DESCRIPTIONS[v as keyof typeof PROBLEM_TYPE_DESCRIPTIONS],
+            ]),
+        );
+      }
+      if (enumUsage) choice.usage = enumUsage;
+      choices.push(choice);
+      continue;
+    }
+    const corpus = isCorpusVocabulary(name)
+      ? vocabulary[name as "module" | "component" | "root_cause"]
+      : [];
     if (corpus.length >= 2) {
-      const options = tagged(corpus, "v");
+      const labels = tagged(corpus, "v");
       const usage: Record<string, number> = {};
-      for (const [tag, value] of Object.entries(options))
-        usage[tag] = vocabulary.usage[field][value] ?? 0;
-      choices.push({ field, options, tagged: true, usage });
-    } else if (fallback.length) {
-      choices.push({ field, options: plain(fallback), tagged: false });
+      const counts = (vocabulary.usage as Record<string, Record<string, number> | undefined>)[name];
+      for (const [tag, value] of Object.entries(labels)) usage[tag] = counts?.[value] ?? 0;
+      choices.push({ field: name, options: labels, tagged: true, usage });
+    } else if (field.values.length) {
+      choices.push({ field: name, options: plain(field.values), tagged: false });
     } else {
       needsAuthor.push({
-        field,
-        reason: `the corpus uses ${corpus.length === 1 ? "only one" : "no"} ${field} value, so there is nothing to choose from`,
+        field: name,
+        reason: `the corpus uses ${corpus.length === 1 ? "only one" : "no"} ${name} value, so there is nothing to choose from`,
       });
     }
   }
@@ -155,7 +151,9 @@ export async function jevFixes(
           score: round(probability),
           note: choice.tagged
             ? "chosen among the corpus's values"
-            : "chosen among the schema's values",
+            : fields.find((f) => f.name === choice.field)?.sources.values === "default"
+              ? "chosen among the schema's values"
+              : "chosen among the repository's values",
         });
       } else {
         needsAuthor.push({
@@ -171,7 +169,7 @@ export async function jevFixes(
 
   const sets: AuditNoulSet[] = [];
   const existingTags = Array.isArray(doc.data.tags)
-    ? doc.data.tags.filter((t): t is string => typeof t === "string" && TAG_PATTERN.test(t))
+    ? doc.data.tags.filter((t): t is string => typeof t === "string" && tagPattern.test(t))
     : [];
   const wantTags = rules.has("tags.missing") && vocabulary.tags.length > 0;
   if (wantTags) {

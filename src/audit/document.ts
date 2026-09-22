@@ -108,3 +108,91 @@ export function firstHeading(body: string): string | undefined {
   // asterisks inside it (`m.*`, or two separate spans) are the author's text.
   return match?.[1]?.replace(/^(\*\*|__)((?:(?!\1).)+)\1$/, "$2").trim() || undefined;
 }
+
+/** Which frontmatter keys hold strings and which hold lists of strings, from the effective schema. */
+export type TypedKeys = { strings: ReadonlySet<string>; lists: ReadonlySet<string> };
+
+/** The learning schema's string and list fields; the default when no schema is given. */
+export const DEFAULT_TYPED_KEYS: TypedKeys = {
+  strings: new Set([
+    "title",
+    "module",
+    "component",
+    "problem_type",
+    "severity",
+    "root_cause",
+    "resolution_type",
+    "rails_version",
+    "framework_version",
+  ]),
+  lists: new Set(["symptoms", "applies_when", "tags"]),
+};
+
+/** Bare words YAML parsers (1.1 or 1.2) read as null, a boolean, or a number instead of a string. */
+const YAML_LITERAL = /^(null|~|true|false|yes|no|on|off|[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?)$/i;
+
+export function isBareLiteral(value: string): boolean {
+  return YAML_LITERAL.test(value.trim());
+}
+
+export type BareLiteral = {
+  field: string;
+  /** The raw text as the author wrote it. */
+  value: string;
+  /** Position in the list when the literal is a list item; absent for a scalar field. */
+  index?: number;
+};
+
+/**
+ * Unquoted values in string-typed fields, or items of string-list fields, that a
+ * parser turns into null, a boolean, or a number: `tags: [inbox, null]` loses a
+ * tag silently. Keys the schema does not type (`related_issues: [1665]`) are left alone.
+ */
+export function bareLiterals(
+  frontmatterText: string,
+  keys: TypedKeys = DEFAULT_TYPED_KEYS,
+): BareLiteral[] {
+  const out: BareLiteral[] = [];
+  let currentKey: string | null = null;
+  let index = 0;
+  let inBlockScalar = false;
+  for (const rawLine of frontmatterText.split(/\r?\n/)) {
+    const keyed = /^([A-Za-z_][A-Za-z0-9_-]*):(?:\s+(.*))?$/.exec(rawLine);
+    if (keyed) {
+      currentKey = keyed[1] ?? null;
+      index = 0;
+      const value = (keyed[2] ?? "").trim();
+      inBlockScalar = /^[|>]/.test(value);
+      if (!currentKey) continue;
+      if (
+        keys.strings.has(currentKey) &&
+        value &&
+        !/^["'[{|>]/.test(value) &&
+        isBareLiteral(value)
+      ) {
+        out.push({ field: currentKey, value });
+      }
+      if (!keys.lists.has(currentKey)) continue;
+      if (value.startsWith("[")) {
+        const inner = value.replace(/^\[|\]$/g, "").trim();
+        (inner ? inner.split(",") : []).forEach((item, i) => {
+          const text = item.trim();
+          if (text && !/^["']/.test(text) && isBareLiteral(text)) {
+            out.push({ field: currentKey as string, value: text, index: i });
+          }
+        });
+      }
+      continue;
+    }
+    if (inBlockScalar) continue;
+    const item = /^\s{0,2}-\s+(.*)$/.exec(rawLine);
+    if (item && currentKey && keys.lists.has(currentKey)) {
+      const value = (item[1] ?? "").trim();
+      if (value && !/^["']/.test(value) && isBareLiteral(value)) {
+        out.push({ field: currentKey, value, index });
+      }
+      index++;
+    }
+  }
+  return out;
+}

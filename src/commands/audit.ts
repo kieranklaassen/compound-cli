@@ -1,7 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { HELP_OPTION, type OptionSpecs, parseCommandArgs, ROOT_OPTION } from "../args.ts";
-import { type AuditedFile, auditFiles, loadAuditCorpus } from "../audit/audit.ts";
+import {
+  type AuditCorpus,
+  auditFiles,
+  auditStats,
+  contextFor,
+  loadAuditCorpus,
+} from "../audit/audit.ts";
 import { splitDocument } from "../audit/document.ts";
 import { deterministicFixes } from "../audit/fixers/deterministic.ts";
 import { jevFixes, type NeedsAuthor, THRESHOLDS } from "../audit/fixers/jev.ts";
@@ -14,7 +20,6 @@ import {
   summarize,
 } from "../audit/report.ts";
 import { runRules } from "../audit/rules.ts";
-import type { Vocabulary } from "../audit/vocabulary.ts";
 import { type FieldChange, rewriteFrontmatter, unifiedDiff } from "../audit/writer.ts";
 import type { Context } from "../context.ts";
 import { openWorkspace } from "../corpus/load.ts";
@@ -29,8 +34,11 @@ const AUDIT_OPTIONS = {
   json: { type: "boolean" },
   strict: { type: "boolean" },
   packs: { type: "boolean" },
+  "pack-dir": { type: "string", multiple: true },
+  stats: { type: "boolean" },
   report: { type: "string" },
   fix: { type: "boolean" },
+  jev: { type: "boolean" },
   "dry-run": { type: "boolean" },
   yes: { type: "boolean" },
   model: { type: "string" },
@@ -51,11 +59,17 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   if ((v["dry-run"] || v.yes) && !v.fix) {
     throw new UsageError("--dry-run and --yes only apply with --fix");
   }
+  if ((v.jev || v.model !== undefined) && !v.fix) {
+    throw new UsageError("--jev and --model only apply with --fix");
+  }
+  if (v.model !== undefined && !v.jev) {
+    throw new UsageError("--model chooses the judge's model; it needs --fix --jev");
+  }
   const fixing = Boolean(v.fix);
-  // The key check comes before any file is read (plan R28): --fix without a key is exit 3.
-  const judge = fixing
-    ? judgeFromEnv(ctx.env, v.model === undefined ? {} : { model: v.model })
-    : null;
+  // Plain --fix is the deterministic fixers and needs no key. The Jev fixers do, and the
+  // key check comes before any file is read: --fix --jev without a key is exit 3.
+  const judge =
+    fixing && v.jev ? judgeFromEnv(ctx.env, v.model === undefined ? {} : { model: v.model }) : null;
   if (fixing && !v["dry-run"] && !v.yes && !ctx.isTTY) {
     throw new UsageError(
       "--fix writes files; pass --yes to apply without a prompt, or --dry-run to only show the diffs",
@@ -63,15 +77,25 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   }
 
   const workspace = openWorkspace(ctx.cwd, ctx.env, v.root);
-  const corpus = loadAuditCorpus(workspace, { packs: Boolean(v.packs) });
-  if (!corpus.hasSolutions && corpus.files.length === 0) {
+  if (workspace.config.compound.errors.length) {
+    throw new UsageError(
+      `the compound: block of the config has problems:\n  ${workspace.config.compound.errors.join("\n  ")}`,
+    );
+  }
+  const packDirs = [...(v["pack-dir"] ?? [])];
+  for (const dir of workspace.config.compound.audit.packDirs) {
+    if (!packDirs.includes(dir)) packDirs.push(dir);
+  }
+  const corpus = loadAuditCorpus(workspace, { packs: Boolean(v.packs), packDirs });
+  if (!corpus.hasSolutions && corpus.files.length === 0 && !packDirs.length) {
     throw new MissingCorpusError(workspace.config.docsRoot);
   }
+  const strict = Boolean(v.strict) || corpus.config.audit.strict;
 
-  let files = auditFiles(corpus.files);
+  let files = auditFiles(corpus);
   let mode: AuditReport["fix"] = "off";
-  if (judge) {
-    files = await proposeFixes(files, corpus.files, corpus.vocabulary, judge);
+  if (fixing) {
+    files = await proposeFixes(files, corpus, judge);
     if (v["dry-run"]) {
       mode = "dry-run";
     } else {
@@ -100,11 +124,14 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
 
   const report: AuditReport = {
     schema_version: 1,
-    strict: Boolean(v.strict),
+    strict,
     fix: mode,
+    fixers: fixing ? (judge ? ["deterministic", "jev"] : ["deterministic"]) : [],
     thresholds: judge ? THRESHOLDS : null,
-    summary: summarize(files, Boolean(v.strict), mode === "dry-run" || mode === "declined"),
+    summary: summarize(files, strict, mode === "dry-run" || mode === "declined"),
     files,
+    excluded: corpus.excluded,
+    stats: v.stats ? auditStats(corpus) : null,
     usage: judge ? judge.usage.snapshot() : null,
     warnings: corpus.warnings,
   };
@@ -115,21 +142,20 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   }
   if (v.json) ctx.stdout(`${JSON.stringify(report, null, 2)}\n`);
   else ctx.stdout(renderText(report));
-  return files.some((f) => failing(f, Boolean(v.strict))) ? EXIT.FINDINGS : EXIT.OK;
+  return files.some((f) => failing(f, strict)) ? EXIT.FINDINGS : EXIT.OK;
 }
 
 /**
- * For every file with a fixable finding: deterministic fixes first, then Jev
- * for what remains, then the diff and the findings that would remain after
- * the rewrite. Nothing is written here.
+ * For every file with a fixable finding: deterministic fixes first, then, when
+ * a judge was given (--jev), Jev for what remains; then the diff and the
+ * findings that would remain after the rewrite. Nothing is written here.
  */
 export async function proposeFixes(
   audits: FileAudit[],
-  sources: AuditedFile[],
-  vocabulary: Vocabulary,
-  judge: Judge,
+  corpus: Pick<AuditCorpus, "files" | "vocabulary" | "options">,
+  judge: Judge | null,
 ): Promise<FileAudit[]> {
-  const byPath = new Map(sources.map((s) => [s.path, s]));
+  const byPath = new Map(corpus.files.map((s) => [s.path, s]));
   const out: FileAudit[] = [];
   for (const audit of audits) {
     const source = byPath.get(audit.path);
@@ -152,7 +178,7 @@ export async function proposeFixes(
           needs_author: [
             {
               field: "*",
-              reason: "pack rules live in the shared cache; fix them in the pack's own repository",
+              reason: "pack files live in the shared cache; fix them in the pack's own repository",
             },
           ],
           diff: "",
@@ -165,19 +191,28 @@ export async function proposeFixes(
     const changes: FieldChange[] = deterministicFixes(source.doc, audit.findings, {
       absPath: source.absPath,
       path: source.path,
+      fields: corpus.options.schema[source.kind],
     });
     const needsAuthor: NeedsAuthor[] = [];
     // Re-run the rules on the deterministically fixed text; Jev only sees what is left
     // (a wrapped scalar can still be generic, a normalised enum needs no judge).
     // Two Jev rounds at most: the first may move a file onto the bug track, which
     // makes symptoms, root_cause, and resolution_type required.
-    for (let round = 0; round < 2; round++) {
+    const context = contextFor(source, corpus.options);
+    for (let round = 0; judge && round < 2; round++) {
       const current = splitDocument(rewriteFrontmatter(source.doc, changes).text);
-      const leftover = runRules(current, { path: source.path, kind: source.kind }).filter(
+      const leftover = runRules(current, context).filter(
         (f) => f.fixable && !needsAuthor.some((n) => n.field === f.field),
       );
       if (!leftover.length) break;
-      const jev = await jevFixes(judge, current, source.path, leftover, vocabulary);
+      const jev = await jevFixes(
+        judge,
+        current,
+        source.path,
+        leftover,
+        corpus.vocabulary,
+        corpus.options.schema[source.kind],
+      );
       for (const change of jev.changes) {
         const index = changes.findIndex((c) => c.field === change.field);
         if (index >= 0) changes.splice(index, 1);
@@ -188,17 +223,15 @@ export async function proposeFixes(
       );
       if (!jev.changes.length) break;
     }
-    // A change that restates the current value is not a change.
+    // A change that restates the current value is not a change, unless it is about quoting.
     const effective = changes.filter(
-      (c) => JSON.stringify(c.value) !== JSON.stringify(source.doc.data[c.field]),
+      (c) => c.quote || JSON.stringify(c.value) !== JSON.stringify(source.doc.data[c.field]),
     );
     changes.splice(0, changes.length, ...effective);
     const rewritten = rewriteFrontmatter(source.doc, changes);
-    const remaining = runRules(splitDocument(rewritten.text), {
-      path: source.path,
-      kind: source.kind,
-    });
+    const remaining = runRules(splitDocument(rewritten.text), context);
     // A fixable finding no fixer could settle is the author's, and the report says so.
+    // Without --jev, what only Jev could settle is named as such rather than as unfixable.
     for (const f of remaining) {
       const field = f.field ?? "*";
       if (
@@ -206,7 +239,13 @@ export async function proposeFixes(
         !changes.some((c) => c.field === field) &&
         !needsAuthor.some((n) => n.field === field)
       ) {
-        needsAuthor.push({ field, reason: `no fixer could supply a value (${f.rule})` });
+        needsAuthor.push({
+          field,
+          reason:
+            !judge && f.fixer === "jev"
+              ? `needs the judge: run --fix --jev (${f.rule})`
+              : `no fixer could supply a value (${f.rule})`,
+        });
       }
     }
     const fix: FileFix = {

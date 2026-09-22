@@ -1,18 +1,20 @@
 import { basename } from "node:path";
-import { type SplitDocument, unsafeScalars } from "./document.ts";
+import type { CompoundConfig } from "../config/ce-config.ts";
+import { bareLiterals, type SplitDocument, unsafeScalars } from "./document.ts";
 import {
-  LIMITS,
-  normalizeEnum,
-  PROBLEM_TYPES,
-  RECORD_TYPES,
-  RESOLUTION_TYPES,
-  SEVERITIES,
-  TAG_PATTERN,
-  trackOf,
-} from "./schema.ts";
+  buildEffectiveSchema,
+  DEFAULT_SCHEMA,
+  type DocumentKind,
+  type EffectiveField,
+  type EffectiveSchema,
+  type Source,
+  tagPatternOf,
+} from "./effective-schema.ts";
+import { normalizeEnum, PROBLEM_TYPES, TAG_PATTERN, type Track, trackOf } from "./schema.ts";
+
+export type { DocumentKind } from "./effective-schema.ts";
 
 export type Severity = "error" | "warning";
-export type DocumentKind = "solution" | "pack_rule";
 
 export type Fixer = "deterministic" | "jev" | null;
 
@@ -25,49 +27,68 @@ export type Finding = {
   fixable: boolean;
   /** Which fixer handles it: deterministic first, Jev when spelling cannot settle it. */
   fixer: Fixer;
+  /** Where the rule came from: the CLI's defaults, or the config layer that set it. */
+  source: Source;
 };
 
-/** The fixer class per rule; the README table is the prose form of this map. */
+/**
+ * The fixer class per rule id for the rules that are not derived from a field's
+ * type; `fixerFor` derives the rest (an enum's `.invalid` is spelling first, a
+ * closed field's `.missing` is a Jev choice). The README table is the prose form.
+ */
 export const FIXERS: Record<string, Fixer> = {
   "frontmatter.unsafe_scalar": "deterministic",
+  "frontmatter.bare_literal": "deterministic",
   "title.missing": "deterministic",
   "date.missing": "deterministic",
   "date.invalid": "deterministic",
-  "problem_type.missing": "jev",
-  "problem_type.invalid": "deterministic",
-  "module.missing": "jev",
-  "component.missing": "jev",
-  "severity.missing": "jev",
-  "severity.invalid": "deterministic",
   "symptoms.missing": "jev",
-  "root_cause.missing": "jev",
-  "resolution_type.missing": "jev",
-  "resolution_type.invalid": "deterministic",
   "applies_when.missing": "jev",
   "applies_when.generic": "jev",
-  "applies_when.not_a_list": "deterministic",
-  "symptoms.not_a_list": "deterministic",
   "tags.missing": "jev",
   "tags.format": "deterministic",
   "tags.too_many": "deterministic",
-  "tags.not_a_list": "deterministic",
   "tags.empty_item": "deterministic",
   "list.duplicate": "deterministic",
 };
 
-const finding = (
+/** Which fixer settles a rule on a field, from the explicit map or the field's type. */
+export function fixerFor(rule: string, field: EffectiveField | undefined): Fixer {
+  if (rule in FIXERS) return FIXERS[rule] ?? null;
+  if (!field) return null;
+  const check = rule.slice(field.name.length + 1);
+  if (field.type === "list") {
+    if (check === "not_a_list") return "deterministic";
+    return null;
+  }
+  if (field.type === "date") return null;
+  if (check === "missing")
+    return field.values.length || isCorpusVocabulary(field.name) ? "jev" : null;
+  if (check === "invalid") return field.closed ? "deterministic" : "jev";
+  return null;
+}
+
+/** Fields whose values the corpus supplies when the schema lists none. */
+export function isCorpusVocabulary(name: string): boolean {
+  return name === "module" || name === "component" || name === "root_cause";
+}
+
+export const finding = (
   rule: string,
   severity: Severity,
   field: string | null,
   message: string,
   fixable = false,
+  source: Source = "default",
+  fixer?: Fixer,
 ): Finding => ({
   rule,
   severity,
   field,
   message,
   fixable,
-  fixer: fixable ? (FIXERS[rule] ?? null) : null,
+  fixer: fixable ? (fixer === undefined ? (FIXERS[rule] ?? null) : fixer) : null,
+  source,
 });
 
 /** Situations too vague to help a judge decide anything. */
@@ -130,97 +151,43 @@ export function isWeakTitle(title: string, path: string): boolean {
   return text.toLowerCase() === slug;
 }
 
-function stringList(value: unknown): string[] | null {
-  if (!Array.isArray(value)) return null;
-  return value.filter((v): v is string => typeof v === "string");
-}
-
-function checkList(
-  field: string,
-  value: unknown,
-  out: Finding[],
-  options: { max?: number; lowercase?: boolean; fixable: boolean },
-): string[] | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value === "string") {
-    out.push(
-      finding(
-        `${field}.not_a_list`,
-        "error",
-        field,
-        `${field} is a string; it must be a list`,
-        true,
-      ),
-    );
-    return [value];
-  }
-  const items = stringList(value);
-  if (items === null) {
-    out.push(finding(`${field}.not_a_list`, "error", field, `${field} must be a list of strings`));
-    return null;
-  }
-  if (items.length !== (value as unknown[]).length) {
-    out.push(
-      finding(`${field}.not_strings`, "error", field, `${field} has an item that is not a string`),
-    );
-  }
-  if (options.max !== undefined && items.length > options.max) {
-    out.push(
-      finding(
-        `${field}.too_many`,
-        "warning",
-        field,
-        `${field} has ${items.length} items; the schema allows ${options.max}`,
-        options.fixable,
-      ),
-    );
-  }
-  const seen = new Set<string>();
-  let duplicate = false;
-  for (const item of items) {
-    const key = item.trim().toLowerCase();
-    if (seen.has(key)) duplicate = true;
-    seen.add(key);
-    if (item.length > LIMITS.itemChars) {
-      out.push(
-        finding(
-          `${field}.item_too_long`,
-          "warning",
-          field,
-          `${field} item is ${item.length} characters; the judge reads at most ${LIMITS.itemChars}`,
-        ),
-      );
-    }
-    if (options.lowercase && !TAG_PATTERN.test(item)) {
-      out.push(
-        finding(
-          `${field}.format`,
-          "warning",
-          field,
-          `tag "${item}" is not lowercase and hyphen-separated`,
-          true,
-        ),
-      );
-    }
-    if (!item.trim()) {
-      out.push(
-        finding(`${field}.empty_item`, "warning", field, `${field} has an empty item`, true),
-      );
-    }
-  }
-  if (duplicate) {
-    out.push(finding("list.duplicate", "warning", field, `${field} repeats an item`, true));
-  }
-  return items;
-}
+/** Repo policy the rules read: the effective schema and the rules dropped from the report. */
+export type RuleOptions = {
+  schema: EffectiveSchema;
+  ignore: Set<string>;
+};
 
 export type RuleContext = {
   path: string;
   kind: DocumentKind;
+  /** For pack files, the pack id (a README's tags must carry it). */
+  packId?: string;
+  options?: RuleOptions;
 };
 
-/** Every finding for one document. Pure: no judge, no filesystem. */
+/** Build the options from the config; the command checks `buildEffectiveSchema`'s errors first. */
+export function ruleOptions(
+  config: CompoundConfig,
+  schema: EffectiveSchema = buildEffectiveSchema(config.fields).schema,
+): RuleOptions {
+  return { schema, ignore: new Set(config.audit.ignore) };
+}
+
+export const DEFAULT_OPTIONS: RuleOptions = { schema: DEFAULT_SCHEMA, ignore: new Set() };
+
+/** Every finding for one document, after the repo's policy. Pure: no judge, no filesystem. */
 export function runRules(doc: SplitDocument, context: RuleContext): Finding[] {
+  const options = context.options ?? DEFAULT_OPTIONS;
+  return applyPolicy(collect(doc, context, options), options);
+}
+
+/** Drop the rules the repo ignores. */
+export function applyPolicy(findings: Finding[], options: RuleOptions): Finding[] {
+  if (!options.ignore.size) return findings;
+  return findings.filter((f) => !options.ignore.has(f.rule));
+}
+
+function collect(doc: SplitDocument, context: RuleContext, options: RuleOptions): Finding[] {
   const out: Finding[] = [];
   if (!doc.hasFrontmatter) {
     out.push(
@@ -247,218 +214,49 @@ export function runRules(doc: SplitDocument, context: RuleContext): Finding[] {
       ),
     );
   }
-  const data = doc.data;
+  const fields = options.schema[context.kind];
+  const typedKeys = {
+    strings: new Set(
+      fields.filter((f) => f.type !== "list" && f.type !== "date").map((f) => f.name),
+    ),
+    lists: new Set(fields.filter((f) => f.type === "list").map((f) => f.name)),
+  };
+  for (const literal of bareLiterals(doc.frontmatterText, typedKeys)) {
+    out.push(
+      finding(
+        "frontmatter.bare_literal",
+        "error",
+        literal.field,
+        `${literal.field} value \`${literal.value}\` is read as null, a boolean, or a number, not a string (quote it)`,
+        true,
+      ),
+    );
+  }
 
+  const data = doc.data;
   const title = typeof data.title === "string" ? data.title : undefined;
-  if (!title?.trim()) {
-    out.push(finding("title.missing", "error", "title", "title is missing", true));
-  } else if (isWeakTitle(title, context.path)) {
-    out.push(
-      finding(
-        "title.weak",
-        "warning",
-        "title",
-        "title is a placeholder, the file name, or under three words",
-      ),
-    );
-  }
-
-  if (context.kind === "pack_rule") {
-    packRuleRules(doc, out, title);
-    return out;
-  }
-
-  const date = data.date;
-  if (date === undefined || date === null || date === "") {
-    out.push(finding("date.missing", "error", "date", "date is missing", true));
-  } else if (!DATE.test(dateText(date))) {
-    out.push(
-      finding("date.invalid", "error", "date", `date "${String(date)}" is not YYYY-MM-DD`, true),
-    );
-  }
-
   const problemType = data.problem_type;
-  if (problemType === undefined || problemType === null || problemType === "") {
-    out.push(
-      finding("problem_type.missing", "error", "problem_type", "problem_type is missing", true),
-    );
-  } else if (!(PROBLEM_TYPES as readonly string[]).includes(String(problemType))) {
-    out.push(
-      finding(
-        "problem_type.invalid",
-        "error",
-        "problem_type",
-        `problem_type "${String(problemType)}" is not a schema value`,
-        true,
-      ),
-    );
-  }
+  const track: Track | null = fields.some((f) => f.name === "problem_type")
+    ? trackOf(normalizeEnum(problemType, PROBLEM_TYPES) ?? problemType)
+    : null;
 
-  if (typeof data.module !== "string" || !data.module.trim()) {
-    out.push(finding("module.missing", "error", "module", "module is missing", true));
-  }
-  if (typeof data.component !== "string" || !data.component.trim()) {
-    out.push(finding("component.missing", "error", "component", "component is missing", true));
-  }
-
-  const severity = data.severity;
-  if (severity === undefined || severity === null || severity === "") {
-    out.push(finding("severity.missing", "error", "severity", "severity is missing", true));
-  } else if (!(SEVERITIES as readonly string[]).includes(String(severity))) {
-    out.push(
-      finding(
-        "severity.invalid",
-        "error",
-        "severity",
-        `severity "${String(severity)}" is not one of ${SEVERITIES.join(", ")}`,
-        true,
-      ),
-    );
-  }
-
-  const track = trackOf(normalizeEnum(problemType, PROBLEM_TYPES) ?? problemType);
-  if (track === "bug") {
-    const symptoms = checkList("symptoms", data.symptoms, out, {
-      max: LIMITS.symptomsMax,
-      fixable: false,
-    });
-    if (symptoms === null || symptoms.length === 0) {
+  for (const field of fields) {
+    const value = data[field.name];
+    const before = out.length;
+    fieldRules(field, value, track, out);
+    const failed = out.length > before;
+    if (field.name === "title" && !failed && title && isWeakTitle(title, context.path)) {
       out.push(
         finding(
-          "symptoms.missing",
-          "error",
-          "symptoms",
-          "bug-track learning has no symptoms",
-          true,
+          "title.weak",
+          "warning",
+          "title",
+          "title is a placeholder, the file name, or under three words",
         ),
       );
     }
-    if (typeof data.root_cause !== "string" || !data.root_cause.trim()) {
-      out.push(
-        finding(
-          "root_cause.missing",
-          "error",
-          "root_cause",
-          "bug-track learning has no root_cause",
-          true,
-        ),
-      );
-    }
-    const resolution = data.resolution_type;
-    if (resolution === undefined || resolution === null || resolution === "") {
-      out.push(
-        finding(
-          "resolution_type.missing",
-          "error",
-          "resolution_type",
-          "bug-track learning has no resolution_type",
-          true,
-        ),
-      );
-    } else if (!(RESOLUTION_TYPES as readonly string[]).includes(String(resolution))) {
-      out.push(
-        finding(
-          "resolution_type.invalid",
-          "error",
-          "resolution_type",
-          `resolution_type "${String(resolution)}" is not a schema value`,
-          true,
-        ),
-      );
-    }
-  } else {
-    checkList("symptoms", data.symptoms, out, { max: LIMITS.symptomsMax, fixable: false });
-    if (data.resolution_type !== undefined && data.resolution_type !== null) {
-      if (!(RESOLUTION_TYPES as readonly string[]).includes(String(data.resolution_type))) {
-        out.push(
-          finding(
-            "resolution_type.invalid",
-            "error",
-            "resolution_type",
-            `resolution_type "${String(data.resolution_type)}" is not a schema value`,
-            true,
-          ),
-        );
-      }
-    }
-  }
-
-  appliesWhenRules(data.applies_when, title, LIMITS.appliesWhenMax, out);
-  tagRules(data.tags, out);
-  return out;
-}
-
-function appliesWhenRules(
-  value: unknown,
-  title: string | undefined,
-  max: number,
-  out: Finding[],
-): void {
-  if (value === undefined || value === null) {
-    out.push(
-      finding(
-        "applies_when.missing",
-        "warning",
-        "applies_when",
-        "applies_when is missing; the judge relies on it most",
-        true,
-      ),
-    );
-    return;
-  }
-  const items = checkList("applies_when", value, out, { max, fixable: false });
-  if (items === null) return;
-  if (items.length === 0) {
-    out.push(
-      finding("applies_when.missing", "warning", "applies_when", "applies_when is empty", true),
-    );
-    return;
-  }
-  const generic = items.filter((item) => isGenericAppliesWhen(item, title));
-  if (generic.length) {
-    out.push(
-      finding(
-        "applies_when.generic",
-        "warning",
-        "applies_when",
-        `applies_when item${generic.length > 1 ? "s" : ""} too vague to decide on: ${generic
-          .map((g) => `"${g}"`)
-          .join(", ")}`,
-        true,
-      ),
-    );
-  }
-}
-
-function tagRules(value: unknown, out: Finding[]): void {
-  if (value === undefined || value === null) {
-    out.push(finding("tags.missing", "warning", "tags", "tags are missing", true));
-    return;
-  }
-  const items = checkList("tags", value, out, {
-    max: LIMITS.tagsMax,
-    lowercase: true,
-    fixable: true,
-  });
-  if (items !== null && items.length === 0) {
-    out.push(finding("tags.missing", "warning", "tags", "tags are empty", true));
-  }
-}
-
-/** compound-packs `validate-packs.py` rules for a top-level rule file. */
-function packRuleRules(doc: SplitDocument, out: Finding[], title: string | undefined): void {
-  const data = doc.data;
-  if (data.applies_when === undefined || data.applies_when === null) {
-    out.push(finding("applies_when.missing", "error", "applies_when", "applies_when is missing"));
-  } else {
-    const items = checkList("applies_when", data.applies_when, out, {
-      max: LIMITS.packAppliesWhenMax,
-      fixable: false,
-    });
-    if (items !== null && items.length === 0) {
-      out.push(finding("applies_when.missing", "error", "applies_when", "applies_when is empty"));
-    }
-    if (items) {
+    if (field.name === "applies_when" && Array.isArray(value)) {
+      const items = value.filter((v): v is string => typeof v === "string");
       const generic = items.filter((item) => isGenericAppliesWhen(item, title));
       if (generic.length) {
         out.push(
@@ -466,47 +264,246 @@ function packRuleRules(doc: SplitDocument, out: Finding[], title: string | undef
             "applies_when.generic",
             "warning",
             "applies_when",
-            `applies_when item too vague to decide on: "${generic[0]}"`,
+            `applies_when item${generic.length > 1 ? "s" : ""} too vague to decide on: ${generic
+              .map((g) => `"${g}"`)
+              .join(", ")}`,
+            context.kind === "solution",
           ),
         );
       }
     }
-  }
-  if (data.tags === undefined || data.tags === null) {
-    out.push(finding("tags.missing", "error", "tags", "tags are missing"));
-  } else {
-    const items = checkList("tags", data.tags, out, {
-      max: LIMITS.tagsMax,
-      lowercase: true,
-      fixable: false,
-    });
-    if (items !== null && items.length === 0) {
-      out.push(finding("tags.missing", "error", "tags", "tags are empty"));
+    if (
+      field.name === "tags" &&
+      context.kind === "pack_readme" &&
+      context.packId &&
+      Array.isArray(value) &&
+      !value.includes(context.packId)
+    ) {
+      out.push(
+        finding(
+          "pack.readme_tag_missing",
+          "error",
+          "tags",
+          `README tags must include the pack id "${context.packId}"`,
+        ),
+      );
     }
   }
-  if (typeof data.module !== "string" || !data.module.trim()) {
-    out.push(finding("module.missing", "error", "module", "module is missing"));
+  return out;
+}
+
+const MISSING_MESSAGES: Record<string, string> = {
+  applies_when: "applies_when is missing; the judge relies on it most",
+  tags: "tags are missing",
+};
+
+/** One field against its effective spec: presence, type, values, bounds, pattern. */
+function fieldRules(
+  field: EffectiveField,
+  value: unknown,
+  track: Track | null,
+  out: Finding[],
+): void {
+  const name = field.name;
+  const missing =
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && !value.trim()) ||
+    (Array.isArray(value) && value.length === 0);
+  const emit = (
+    check: string,
+    severity: Severity,
+    message: string,
+    source: Source,
+    fixable = true,
+  ) => {
+    const rule = `${name}.${check}`;
+    const fixer = fixerFor(rule, field);
+    out.push(finding(rule, severity, name, message, fixable && fixer !== null, source, fixer));
+  };
+
+  if (missing) {
+    const required = field.required === "always" || (field.required === "bug" && track === "bug");
+    if (field.required === "recommended") {
+      const empty = Array.isArray(value) ? `${name} ${name === "tags" ? "are" : "is"} empty` : null;
+      emit(
+        "missing",
+        "warning",
+        empty ?? MISSING_MESSAGES[name] ?? `${name} is missing`,
+        field.sources.required,
+      );
+    } else if (required) {
+      const message =
+        field.required === "bug"
+          ? `bug-track learning has no ${name}`
+          : Array.isArray(value)
+            ? `${name} is empty`
+            : `${name} is missing`;
+      emit("missing", "error", message, field.sources.required);
+    }
+    return;
   }
-  if (!(PROBLEM_TYPES as readonly string[]).includes(String(data.problem_type))) {
+
+  if (field.bugOnly && track === "knowledge") {
+    emit(
+      "bug_track_only",
+      "error",
+      `${name} is only valid on bug-track learnings`,
+      field.sources.bugOnly,
+      false,
+    );
+  }
+
+  switch (field.type) {
+    case "date": {
+      if (!DATE.test(dateText(value))) {
+        emit("invalid", "error", `${name} "${String(value)}" is not YYYY-MM-DD`, field.source);
+      }
+      return;
+    }
+    case "string":
+    case "enum": {
+      if (typeof value !== "string") {
+        if (field.closed) {
+          emit(
+            "invalid",
+            "error",
+            `${name} "${String(value)}" is not ${valuesPhrase(field)}`,
+            valuesSource(field),
+          );
+        } else {
+          emit("not_a_string", "error", `${name} must be a single value`, field.source, false);
+        }
+        return;
+      }
+      if (field.closed && !field.values.includes(value.trim())) {
+        emit(
+          "invalid",
+          "error",
+          `${name} "${value}" is not ${valuesPhrase(field)}`,
+          valuesSource(field),
+        );
+      } else if (field.pattern && !new RegExp(field.pattern).test(value.trim())) {
+        emit(
+          "invalid",
+          "error",
+          `${name} "${value}" does not match ${field.pattern}`,
+          field.sources.pattern,
+          false,
+        );
+      }
+      return;
+    }
+    case "list": {
+      listRules(field, value, out, emit);
+      return;
+    }
+    default: {
+      const exhaustive: never = field.type;
+      throw new Error(`unknown field type ${String(exhaustive)}`);
+    }
+  }
+}
+
+/** "a schema value" for the defaults; the repository's list when a layer set it. */
+function valuesPhrase(field: EffectiveField): string {
+  if (valuesSource(field) === "default") return "a schema value";
+  const shown = field.values.slice(0, 6).join(", ");
+  return `in this repository's list (${shown}${field.values.length > 6 ? ", ..." : ""})`;
+}
+
+function valuesSource(field: EffectiveField): Source {
+  return field.sources.closed !== "default" ? field.sources.closed : field.sources.values;
+}
+
+type Emit = (
+  check: string,
+  severity: Severity,
+  message: string,
+  source: Source,
+  fixable?: boolean,
+) => void;
+
+function listRules(field: EffectiveField, value: unknown, out: Finding[], emit: Emit): void {
+  const name = field.name;
+  if (typeof value === "string") {
+    emit("not_a_list", "error", `${name} is a string; it must be a list`, field.source);
+    return;
+  }
+  if (!Array.isArray(value)) {
+    emit("not_a_list", "error", `${name} must be a list of strings`, field.source, false);
+    return;
+  }
+  const items = value.filter((v): v is string => typeof v === "string");
+  if (items.length !== value.length) {
+    emit("not_strings", "error", `${name} has an item that is not a string`, field.source, false);
+  }
+  if (field.maxItems !== null && items.length > field.maxItems) {
+    emit(
+      "too_many",
+      "warning",
+      `${name} has ${items.length} items; the schema allows ${field.maxItems}`,
+      field.sources.maxItems,
+      name === "tags",
+    );
+  }
+  if (field.minItems !== null && items.length > 0 && items.length < field.minItems) {
+    emit(
+      "too_few",
+      "error",
+      `${name} has ${items.length} item${items.length === 1 ? "" : "s"}; at least ${field.minItems} are needed`,
+      field.sources.minItems,
+      false,
+    );
+  }
+  const pattern = field.pattern ? new RegExp(field.pattern) : null;
+  const defaultTagPattern = name === "tags" && field.pattern === TAG_PATTERN.source;
+  const seen = new Set<string>();
+  let duplicate = false;
+  for (const item of items) {
+    const key = item.trim().toLowerCase();
+    if (seen.has(key)) duplicate = true;
+    seen.add(key);
+    if (field.maxChars !== null && item.length > field.maxChars) {
+      emit(
+        "item_too_long",
+        "warning",
+        `${name} item is ${item.length} characters; the judge reads at most ${field.maxChars}`,
+        field.sources.maxChars,
+        false,
+      );
+    }
+    if (!item.trim()) {
+      emit("empty_item", "warning", `${name} has an empty item`, field.source);
+    } else if (pattern && !pattern.test(item)) {
+      emit(
+        "format",
+        "warning",
+        defaultTagPattern
+          ? `tag "${item}" is not lowercase and hyphen-separated`
+          : `${name} item "${item}" does not match ${field.pattern}`,
+        field.sources.pattern,
+      );
+    }
+  }
+  if (duplicate) {
     out.push(
       finding(
-        "problem_type.invalid",
-        "error",
-        "problem_type",
-        `problem_type "${String(data.problem_type)}" is not a schema value`,
+        "list.duplicate",
+        "warning",
+        name,
+        `${name} repeats an item`,
+        true,
+        field.source,
+        "deterministic",
       ),
     );
   }
-  if (!(RECORD_TYPES as readonly string[]).includes(String(data.record_type))) {
-    out.push(
-      finding(
-        "record_type.invalid",
-        "error",
-        "record_type",
-        `record_type "${String(data.record_type)}" must be one of ${RECORD_TYPES.join(", ")}`,
-      ),
-    );
-  }
+}
+
+/** The compiled tag pattern a fixer should normalise toward for a kind. */
+export function tagPatternFor(options: RuleOptions, kind: DocumentKind): RegExp {
+  return tagPatternOf(options.schema, kind);
 }
 
 /** YAML parses an unquoted 2026-01-02 as a Date; the audit compares text. */

@@ -1,5 +1,5 @@
-import { parseDocument } from "yaml";
-import type { SplitDocument } from "./document.ts";
+import { isScalar, isSeq, parseDocument } from "yaml";
+import { isBareLiteral, type SplitDocument } from "./document.ts";
 
 /** One field change a fixer proposes. `value: undefined` removes the field (unused today). */
 export type FieldChange = {
@@ -9,6 +9,8 @@ export type FieldChange = {
   /** Jev's score for the winning answer, when there was one. */
   score?: number;
   note: string;
+  /** The change is about quoting: the value may equal the parsed one and is still a change. */
+  quote?: boolean;
 };
 
 export type RewriteResult = {
@@ -29,10 +31,13 @@ export function rewriteFrontmatter(doc: SplitDocument, changes: FieldChange[]): 
       yamlDoc.delete(change.field);
       continue;
     }
-    yamlDoc.set(change.field, change.value);
-    // A value cut at " #" left its tail as a comment on the node; the new value carries it.
-    const node = yamlDoc.get(change.field, true);
-    if (node && typeof node === "object" && "comment" in node) node.comment = null;
+    // A fresh node (not the raw JS value) so its style can be set: a list that was
+    // written `[a, b]` stays flow, and a string YAML would misread is quoted.
+    const previous = yamlDoc.get(change.field, true);
+    const node = yamlDoc.createNode(change.value);
+    if (isSeq(node) && isSeq(previous) && previous.flow) node.flow = true;
+    quoteBareLiterals(node);
+    yamlDoc.set(change.field, node);
   }
   // A block that started empty parsed as a flow mapping; frontmatter is block style.
   if (yamlDoc.contents && typeof yamlDoc.contents === "object" && "flow" in yamlDoc.contents) {
@@ -45,6 +50,18 @@ export function rewriteFrontmatter(doc: SplitDocument, changes: FieldChange[]): 
   if (doc.eol === "\r\n") frontmatterText = frontmatterText.replace(/\n/g, "\r\n");
   const text = `${doc.bom}---${doc.eol}${frontmatterText}${doc.eol}---${doc.eol}${doc.body}`;
   return { text, frontmatterText };
+}
+
+/**
+ * `yes`, `null`, `1.0` written plain would come back as another type from a
+ * YAML 1.1 or 1.2 parser; a string that reads as one is always double-quoted.
+ */
+function quoteBareLiterals(node: unknown): void {
+  if (isScalar(node)) {
+    if (typeof node.value === "string" && isBareLiteral(node.value)) node.type = "QUOTE_DOUBLE";
+  } else if (isSeq(node)) {
+    for (const item of node.items) quoteBareLiterals(item);
+  }
 }
 
 /**

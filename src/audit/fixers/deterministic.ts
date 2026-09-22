@@ -1,23 +1,23 @@
 import { spawnSync } from "node:child_process";
 import { basename, dirname } from "node:path";
-import { firstHeading, type SplitDocument } from "../document.ts";
-import { dateText, type Finding } from "../rules.ts";
 import {
-  LIMITS,
-  normalizeEnum,
-  normalizeTag,
-  PROBLEM_TYPES,
-  RESOLUTION_TYPES,
-  SEVERITIES,
-} from "../schema.ts";
+  bareLiterals,
+  DEFAULT_TYPED_KEYS,
+  firstHeading,
+  type SplitDocument,
+  type TypedKeys,
+} from "../document.ts";
+import { DEFAULT_SCHEMA, type EffectiveField } from "../effective-schema.ts";
+import { dateText, type Finding } from "../rules.ts";
+import { LIMITS, normalizeEnum, normalizeTag, TAG_PATTERN } from "../schema.ts";
 import type { FieldChange } from "../writer.ts";
 
 /**
  * Fixes that need no judgment: a date the file's history already knows, an
  * enum spelled loosely, tags in the wrong case, a scalar where a list belongs,
- * a title the body's first heading already states. Each takes the findings
- * and returns the changes it can make; what it cannot, it leaves to Jev or
- * to the author.
+ * a title the body's first heading already states, a value YAML misread. Each
+ * takes the findings and returns the changes it can make; what it cannot, it
+ * leaves to Jev or to the author. This is all of `--fix` without `--jev`.
  */
 
 export type FixContext = {
@@ -27,6 +27,8 @@ export type FixContext = {
   path: string;
   /** Skip git (tests, or a tree that is not a repository). */
   git?: boolean;
+  /** The effective schema for the file's kind; the learning defaults when absent. */
+  fields?: EffectiveField[];
 };
 
 export function deterministicFixes(
@@ -37,12 +39,20 @@ export function deterministicFixes(
   const rules = new Set(findings.map((f) => f.rule));
   const changes: FieldChange[] = [];
   const data = doc.data;
+  const fields = context.fields ?? DEFAULT_SCHEMA.solution;
+  const spec = (name: string) => fields.find((f) => f.name === name);
+  // A later fixer for the same field replaces an earlier one (a recovered list may still need normalising).
+  const upsert = (change: FieldChange) => {
+    const index = changes.findIndex((c) => c.field === change.field);
+    if (index >= 0) changes.splice(index, 1);
+    changes.push(change);
+  };
 
   if (rules.has("frontmatter.unsafe_scalar")) {
     for (const [field, value] of recoverUnsafeScalars(doc.frontmatterText, data)) {
       // A trailing comment on a value that is already valid stays a comment.
-      if (typeof value === "string" && validAsIs(field, data[field])) continue;
-      changes.push({
+      if (typeof value === "string" && validAsIs(spec(field), data[field])) continue;
+      upsert({
         field,
         value,
         source: "deterministic",
@@ -50,6 +60,27 @@ export function deterministicFixes(
       });
     }
   }
+
+  if (rules.has("frontmatter.bare_literal")) {
+    const typedKeys = {
+      strings: new Set(
+        fields.filter((f) => f.type !== "list" && f.type !== "date").map((f) => f.name),
+      ),
+      lists: new Set(fields.filter((f) => f.type === "list").map((f) => f.name)),
+    };
+    for (const [field, value] of recoverBareLiterals(doc.frontmatterText, data, typedKeys)) {
+      upsert({
+        field,
+        value,
+        source: "deterministic",
+        note: "quoted a value YAML reads as null, a boolean, or a number",
+        quote: true,
+      });
+    }
+  }
+  /** The value a later fixer should start from: what an earlier one recovered, else the parsed data. */
+  const current = (field: string): unknown =>
+    changes.find((c) => c.field === field)?.value ?? data[field];
 
   if (rules.has("title.missing")) {
     const heading = firstHeading(doc.body);
@@ -78,16 +109,13 @@ export function deterministicFixes(
     }
   }
 
-  for (const [field, allowed, rule] of [
-    ["problem_type", PROBLEM_TYPES, "problem_type.invalid"],
-    ["severity", SEVERITIES, "severity.invalid"],
-    ["resolution_type", RESOLUTION_TYPES, "resolution_type.invalid"],
-  ] as const) {
-    if (!rules.has(rule)) continue;
-    const normalised = normalizeEnum(data[field], allowed);
+  // Any closed field spelled loosely: `Best Practice`, `ui-bug`, ` HIGH `.
+  for (const field of fields) {
+    if (!field.closed || !rules.has(`${field.name}.invalid`)) continue;
+    const normalised = normalizeEnum(current(field.name), field.values);
     if (normalised) {
-      changes.push({
-        field,
+      upsert({
+        field: field.name,
         value: normalised,
         source: "deterministic",
         note: "normalised the spelling",
@@ -95,41 +123,48 @@ export function deterministicFixes(
     }
   }
 
+  const tagsField = spec("tags");
   const tagsDuplicate = findings.some((f) => f.rule === "list.duplicate" && f.field === "tags");
   if (
-    rules.has("tags.not_a_list") ||
-    rules.has("tags.format") ||
-    rules.has("tags.too_many") ||
-    tagsDuplicate
+    tagsField &&
+    (rules.has("tags.not_a_list") ||
+      rules.has("tags.format") ||
+      rules.has("tags.too_many") ||
+      rules.has("tags.empty_item") ||
+      tagsDuplicate)
   ) {
-    const tags = normaliseTags(data.tags);
-    if (tags.length) {
-      changes.push({
+    const max = tagsField.maxItems ?? LIMITS.tagsMax;
+    const pattern = new RegExp(tagsField.pattern ?? TAG_PATTERN.source);
+    const tags = normaliseTags(current("tags"), max);
+    // Normalising toward the schema's style is only a fix when the repository's pattern accepts it.
+    if (tags.length && tags.every((t) => pattern.test(t))) {
+      upsert({
         field: "tags",
         value: tags,
         source: "deterministic",
-        note: "lowercase, hyphenated, deduplicated, at most 8",
+        note: `lowercase, hyphenated, deduplicated, at most ${max}`,
       });
     }
   }
 
-  for (const field of ["applies_when", "symptoms"] as const) {
-    const value = data[field];
-    if (rules.has(`${field}.not_a_list`) && typeof value === "string" && value.trim()) {
-      changes.push({
-        field,
+  for (const field of fields) {
+    if (field.type !== "list" || field.name === "tags") continue;
+    const value = current(field.name);
+    if (rules.has(`${field.name}.not_a_list`) && typeof value === "string" && value.trim()) {
+      upsert({
+        field: field.name,
         value: [value.trim()],
         source: "deterministic",
         note: "wrapped the scalar in a list",
       });
-    } else if (rules.has("list.duplicate") && Array.isArray(value)) {
+    } else if (
+      Array.isArray(value) &&
+      findings.some((f) => f.rule === "list.duplicate" && f.field === field.name)
+    ) {
       const deduped = dedupe(value.filter((v): v is string => typeof v === "string"));
-      if (
-        deduped.length !== value.length &&
-        findings.some((f) => f.rule === "list.duplicate" && f.field === field)
-      ) {
-        changes.push({
-          field,
+      if (deduped.length !== value.length) {
+        upsert({
+          field: field.name,
           value: deduped,
           source: "deterministic",
           note: "removed duplicates",
@@ -141,7 +176,7 @@ export function deterministicFixes(
   return changes;
 }
 
-export function normaliseTags(value: unknown): string[] {
+export function normaliseTags(value: unknown, max: number = LIMITS.tagsMax): string[] {
   // A scalar is a comma list when it has commas ("Rails, Active Record"), else one tag per word.
   const raw =
     typeof value === "string"
@@ -153,7 +188,7 @@ export function normaliseTags(value: unknown): string[] {
     .filter((v): v is string => typeof v === "string")
     .map(normalizeTag)
     .filter(Boolean);
-  return dedupe(tags).slice(0, LIMITS.tagsMax);
+  return dedupe(tags).slice(0, max);
 }
 
 function dedupe(items: string[]): string[] {
@@ -277,18 +312,43 @@ export function recoverUnsafeScalars(
 }
 
 /** An enum or date value the rules already accept needs no recovery. */
-function validAsIs(field: string, value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  switch (field) {
-    case "problem_type":
-      return (PROBLEM_TYPES as readonly string[]).includes(value);
-    case "severity":
-      return (SEVERITIES as readonly string[]).includes(value);
-    case "resolution_type":
-      return (RESOLUTION_TYPES as readonly string[]).includes(value);
-    case "date":
-      return /^\d{4}-\d{2}-\d{2}$/.test(value);
-    default:
-      return false;
+function validAsIs(field: EffectiveField | undefined, value: unknown): boolean {
+  if (!field || typeof value !== "string") return false;
+  if (field.type === "date") return /^\d{4}-\d{2}-\d{2}$/.test(value);
+  return field.closed && field.values.includes(value);
+}
+
+/**
+ * `title: true` or `tags: [inbox, null]` parsed to a boolean and a null. The raw
+ * text still has the words; put them back as strings (the writer quotes them).
+ * A list is rebuilt only when its raw items line up with the parsed ones.
+ */
+export function recoverBareLiterals(
+  frontmatterText: string,
+  data: Record<string, unknown>,
+  keys: TypedKeys = DEFAULT_TYPED_KEYS,
+): Array<[string, string | string[]]> {
+  const out = new Map<string, string | string[]>();
+  const byField = new Map<string, Map<number, string>>();
+  for (const literal of bareLiterals(frontmatterText, keys)) {
+    if (literal.index === undefined) {
+      // `yes` already parsed as a string under YAML 1.2; it is still set so the writer quotes it.
+      out.set(literal.field, literal.value);
+      continue;
+    }
+    const positions = byField.get(literal.field) ?? new Map<number, string>();
+    positions.set(literal.index, literal.value);
+    byField.set(literal.field, positions);
   }
+  for (const [field, positions] of byField) {
+    const parsed = data[field];
+    if (!Array.isArray(parsed)) continue;
+    const rebuilt = parsed.map((item, index) => {
+      const raw = positions.get(index);
+      if (raw !== undefined && typeof item !== "string") return raw;
+      return typeof item === "string" ? item : undefined;
+    });
+    if (rebuilt.every((item): item is string => item !== undefined)) out.set(field, rebuilt);
+  }
+  return [...out.entries()];
 }
