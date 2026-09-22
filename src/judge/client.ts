@@ -160,6 +160,14 @@ function toJudgeError(error: unknown): JudgeError {
   return new JudgeError(errorMessage(error).slice(0, 300), { cause: error });
 }
 
+/** An expected rubric level normalized to 0..1 (top level = 1). */
+export function scoreOf(answers: Answers, key: string): number {
+  const answer = answers[key];
+  if (answer?.type !== "score") throw new JudgeError(`expected a score answer for ${key}`);
+  const levels = Object.keys(answer.legend).length;
+  return levels > 1 ? answer.score / (levels - 1) : answer.score;
+}
+
 export function noulOf(answers: Answers, key: string): number {
   const answer = answers[key];
   if (answer?.type !== "noul") throw new JudgeError(`expected a noul answer for ${key}`);

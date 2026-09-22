@@ -1,4 +1,4 @@
-import { type ChoiceCriteria, choice, noul, type Questions } from "@typesafe-ai/sdk";
+import { type ChoiceCriteria, choice, noul, type Questions, score } from "@typesafe-ai/sdk";
 import { type Candidate, type CandidateKind, stringField } from "../corpus/candidate.ts";
 import type { Section } from "../find/sections.ts";
 
@@ -123,13 +123,14 @@ export function tierTwoRequest(
       `the section tagged ${tag} (its heading and text are under \`document.sections.${tag}\`)`;
   });
   const questions: Questions = {
-    relevant: noul(
-      "Does the document in `document` apply to the work in `work`? Read its sections under `document.sections`.",
-      {
-        true: "The document's problem, rule, or decision bears on this work: knowing it would change what the person does or checks.",
-        false:
-          "The document concerns a different situation, or shares only vocabulary with the work; knowing it would not change the work.",
-      },
+    relevant: score(
+      "How directly does the document in `document` apply to the work in `work`? Read its sections under `document.sections`.",
+      [
+        "Unrelated: a different situation, component, and kind of problem; at most shared vocabulary.",
+        "Same area only: the same codebase area or technology, but its problem, rule, or decision does not come up in this work.",
+        "Relevant background: its problem, rule, or decision could come up in this work; worth knowing but would not on its own change what the person does.",
+        "Directly applies: this work is in, or will meet, the situation the document records; knowing it changes what the person does or checks.",
+      ],
     ),
   };
   if (sections.length >= 2) {

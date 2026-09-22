@@ -1,5 +1,5 @@
 import type { Candidate } from "../corpus/candidate.ts";
-import { choiceOf, type Judge, noulOf } from "../judge/client.ts";
+import { choiceOf, type Judge, scoreOf } from "../judge/client.ts";
 import { type JudgeWork, sectionTag, tierTwoRequest } from "../judge/questions.ts";
 import type { Passage } from "./result.ts";
 import { splitSections } from "./sections.ts";
@@ -22,7 +22,7 @@ export async function judgeTierTwo(
       });
       const request = tierTwoRequest(work, candidate, sections);
       const answers = await judge.ask(request.state, request.questions);
-      const score = noulOf(answers, "relevant");
+      const score = scoreOf(answers, "relevant");
       const where = choiceOf(answers, "where");
       let passage: Passage | null = null;
       const chosenIndex = where
