@@ -1,1 +1,1 @@
-{"request_hash":"7c1dd26ea59565dc810e7b8202df5ac51bffc63c4d431c7520cd4a7b68a93840","status":200,"body":{"model":"jev-1.13.0","answers":{"symptoms.s00":{"type":"noul","noul":0.96}},"usage":{"input_tokens":621,"output_tokens":24}},"meta":{"model":"jev-latest","question_count":1}}
+{"request_hash":"7c1dd26ea59565dc810e7b8202df5ac51bffc63c4d431c7520cd4a7b68a93840","status":200,"body":{"model":"jev-1.13.0","answers":{"symptoms.s00":{"type":"noul","noul":0.95}},"usage":{"input_tokens":621,"output_tokens":24}},"meta":{"model":"jev-latest","question_count":1}}

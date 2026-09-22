@@ -30,20 +30,32 @@ export type AuditSummary = {
   fixes_applied: number;
   fixes_proposed: number;
   needs_author: number;
+  /** What would remain if every proposed fix were applied (dry run or declined); null otherwise. */
+  after_fix: { errors: number; warnings: number; files_failing: number } | null;
 };
 
 export type AuditReport = {
   schema_version: 1;
   strict: boolean;
   fix: "off" | "dry-run" | "applied" | "declined";
+  /** The bars the Jev fixers hold answers to; null without --fix. */
+  thresholds: { choice: number; tag: number; situation: number; symptom: number } | null;
   summary: AuditSummary;
   files: FileAudit[];
   usage: UsageReport | null;
   warnings: string[];
 };
 
+/** The findings that describe the file on disk: after a write, what remains; otherwise the audit. */
+export function onDisk(file: FileAudit): Finding[] {
+  return file.fix?.written ? file.fix.remaining : file.findings;
+}
+
 export function failing(file: FileAudit, strict: boolean): boolean {
-  const findings = file.fix ? file.fix.remaining : file.findings;
+  return fails(onDisk(file), strict);
+}
+
+function fails(findings: Finding[], strict: boolean): boolean {
   return findings.some((f) => f.severity === "error" || (strict && f.severity === "warning"));
 }
 
@@ -55,8 +67,17 @@ export function summarize(files: FileAudit[], strict: boolean): AuditSummary {
   let proposed = 0;
   let needsAuthor = 0;
   let filesFailing = 0;
+  let projected = false;
+  const after = { errors: 0, warnings: 0, files_failing: 0 };
   for (const file of files) {
-    const findings = file.fix ? file.fix.remaining : file.findings;
+    const findings = onDisk(file);
+    const projection = file.fix && !file.fix.written ? file.fix.remaining : findings;
+    if (file.fix && !file.fix.written) projected = true;
+    for (const f of projection) {
+      if (f.severity === "error") after.errors++;
+      else after.warnings++;
+    }
+    if (fails(projection, strict)) after.files_failing++;
     for (const f of findings) {
       if (f.severity === "error") errors++;
       else warnings++;
@@ -79,20 +100,21 @@ export function summarize(files: FileAudit[], strict: boolean): AuditSummary {
     fixes_applied: applied,
     fixes_proposed: proposed,
     needs_author: needsAuthor,
+    after_fix: projected ? after : null,
   };
 }
 
 export function renderText(report: AuditReport): string {
   const lines: string[] = [];
   for (const file of report.files) {
-    const findings = file.fix ? file.fix.remaining : file.findings;
+    const findings = onDisk(file);
     if (!findings.length && !file.fix) continue;
     if (!findings.length && file.fix && !file.fix.changes.length && !file.fix.needs_author.length)
       continue;
     lines.push(file.path);
     for (const f of findings) {
       lines.push(
-        `  ${f.severity.padEnd(7)} ${f.rule.padEnd(28)} ${f.message}${f.fixable ? "" : "  (needs a hand)"}`,
+        `  ${f.severity.padEnd(7)} ${f.rule.padEnd(28)} ${f.message}${f.fixable ? "" : "  [no fixer]"}`,
       );
     }
     if (file.fix) {
@@ -124,6 +146,11 @@ export function renderText(report: AuditReport): string {
         : `${s.fixes_proposed} fixes ${report.fix === "dry-run" ? "proposed (dry run)" : "declined"}`,
     );
     parts.push(`${s.needs_author} needs_author`);
+    if (s.after_fix) {
+      parts.push(
+        `after fixing: ${s.after_fix.errors} error${s.after_fix.errors === 1 ? "" : "s"}, ${s.after_fix.warnings} warning${s.after_fix.warnings === 1 ? "" : "s"}, ${s.after_fix.files_failing} failing`,
+      );
+    }
   }
   if (report.strict) parts.push("strict");
   lines.push(`compound audit: ${parts.join(", ")}`);

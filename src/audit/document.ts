@@ -10,7 +10,7 @@ export type SplitDocument = {
   /** Original text, BOM included if there was one. */
   raw: string;
   bom: string;
-  /** "\n" or "\r\n", from the first line break. */
+  /** "\n" or "\r\n", from the first line break; used for the delimiter lines the writer emits. */
   eol: string;
   hasFrontmatter: boolean;
   /** Frontmatter text between the delimiter lines, without them. */
@@ -27,8 +27,8 @@ export type SplitDocument = {
 export function splitDocument(raw: string): SplitDocument {
   const bom = raw.startsWith("\uFEFF") ? "\uFEFF" : "";
   const text = bom ? raw.slice(1) : raw;
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const lines = text.split(/\r?\n/);
+  const firstBreak = text.indexOf("\n");
+  const eol = firstBreak > 0 && text[firstBreak - 1] === "\r" ? "\r\n" : "\n";
   const base: SplitDocument = {
     raw,
     bom,
@@ -40,11 +40,22 @@ export function splitDocument(raw: string): SplitDocument {
     unterminated: false,
     body: text,
   };
-  if (lines[0]?.trim() !== "---") return base;
-  for (let i = 1; i < lines.length; i++) {
-    if ((lines[i] ?? "").trim() !== "---") continue;
-    const frontmatterText = lines.slice(1, i).join(eol);
-    const body = lines.slice(i + 1).join(eol);
+  // Walk delimiter lines by offset so the body is a substring of the original
+  // text, whatever mix of line endings it carries.
+  const firstLineEnd = firstBreak === -1 ? text.length : firstBreak;
+  if (text.slice(0, firstLineEnd).trim() !== "---") return base;
+  let lineStart = firstLineEnd + 1;
+  while (lineStart <= text.length) {
+    const lineEnd = text.indexOf("\n", lineStart);
+    const end = lineEnd === -1 ? text.length : lineEnd;
+    const line = text.slice(lineStart, end);
+    if (line.trim() !== "---") {
+      if (lineEnd === -1) break;
+      lineStart = lineEnd + 1;
+      continue;
+    }
+    const frontmatterText = text.slice(firstLineEnd + 1, lineStart).replace(/\r?\n$/, "");
+    const body = lineEnd === -1 ? "" : text.slice(lineEnd + 1);
     let data: Record<string, unknown> = {};
     let parseError: string | null = null;
     try {
@@ -69,10 +80,17 @@ export function splitDocument(raw: string): SplitDocument {
  */
 export function unsafeScalars(frontmatterText: string): string[] {
   const bad: string[] = [];
+  let inBlockScalar = false;
   for (const rawLine of frontmatterText.split(/\r?\n/)) {
-    const item = /^\s*-\s+(.*)$/.exec(rawLine);
-    const keyed = /^[A-Za-z_][A-Za-z0-9_]*:\s+(.*)$/.exec(rawLine);
-    const value = (item ?? keyed)?.[1]?.trim();
+    const topLevel = /^[A-Za-z_][A-Za-z0-9_]*:(?:\s+(.*))?$/.exec(rawLine);
+    if (topLevel) {
+      inBlockScalar = /^[|>]/.test((topLevel[1] ?? "").trim());
+    } else if (inBlockScalar) {
+      // Lines of a block scalar are prose, whatever they contain.
+      continue;
+    }
+    const item = /^\s{0,2}-\s+(.*)$/.exec(rawLine);
+    const value = (item ?? topLevel)?.[1]?.trim();
     if (!value) continue;
     if (/^["'[{|>]/.test(value)) continue;
     if (value.includes(": ") || value.includes(" #") || /^[`*&!%@?]/.test(value)) {

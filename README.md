@@ -232,8 +232,13 @@ How close the auto-fix gets to hand-written frontmatter, measured leave-one-out 
 In CI:
 
 ```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0   # the date fixer reads the file's first commit; a shallow clone has no history, and the fixer says so
 - run: bunx --bun github:kieranklaassen/compound-cli audit --strict --report audit.json
 ```
+
+The exit code always describes the files on disk: `--fix --dry-run` and a declined prompt still exit 6 when the corpus fails, and `summary.after_fix` in the JSON says what a `--yes` run would leave. Exit 5 means the judge failed during `--fix`; nothing is written then.
 
 `doctor` carries the audit counts too.
 

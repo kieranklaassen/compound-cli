@@ -10,7 +10,7 @@ export type Context = {
   stderr: (text: string) => void;
   readStdin: () => Promise<string>;
   isTTY: boolean;
-  /** One yes/no question on a TTY; callers check `isTTY` first. */
+  /** One yes/no question on the terminal; callers check `isTTY` (stdin and stdout) first. */
   confirm: (question: string) => Promise<boolean>;
 };
 
@@ -21,11 +21,15 @@ export function processContext(): Context {
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
     readStdin: () => text(process.stdin),
-    isTTY: Boolean(process.stdout.isTTY),
+    // A prompt reads stdin; a piped stdin with a terminal stdout must not hang on a question.
+    isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     confirm: async (question) => {
       const rl = createInterface({ input: process.stdin, output: process.stderr });
       try {
-        const answer = await rl.question(`${question} [y/N] `);
+        const answer = await Promise.race([
+          rl.question(`${question} [y/N] `),
+          new Promise<string>((resolve) => rl.once("close", () => resolve(""))),
+        ]);
         return /^y(es)?$/i.test(answer.trim());
       } finally {
         rl.close();

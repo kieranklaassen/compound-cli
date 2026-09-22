@@ -39,7 +39,9 @@ export function deterministicFixes(
   const data = doc.data;
 
   if (rules.has("frontmatter.unsafe_scalar")) {
-    for (const [field, value] of recoverUnsafeScalars(doc.frontmatterText)) {
+    for (const [field, value] of recoverUnsafeScalars(doc.frontmatterText, data)) {
+      // A trailing comment on a value that is already valid stays a comment.
+      if (typeof value === "string" && validAsIs(field, data[field])) continue;
       changes.push({
         field,
         value,
@@ -93,11 +95,12 @@ export function deterministicFixes(
     }
   }
 
+  const tagsDuplicate = findings.some((f) => f.rule === "list.duplicate" && f.field === "tags");
   if (
     rules.has("tags.not_a_list") ||
     rules.has("tags.format") ||
     rules.has("tags.too_many") ||
-    (rules.has("list.duplicate") && Array.isArray(data.tags))
+    tagsDuplicate
   ) {
     const tags = normaliseTags(data.tags);
     if (tags.length) {
@@ -192,6 +195,13 @@ export function dateFromName(path: string): string | undefined {
 
 /** The date of the commit that added the file, when the tree is a repository. */
 export function dateFromGit(absPath: string): string | undefined {
+  // A shallow clone dates every file at the boundary commit; that is not the first commit.
+  const shallow = spawnSync("git", ["rev-parse", "--is-shallow-repository"], {
+    cwd: dirname(absPath),
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  if (shallow.status !== 0 || shallow.stdout.trim() === "true") return undefined;
   const run = spawnSync(
     "git",
     ["log", "--diff-filter=A", "--follow", "--format=%as", "--", basename(absPath)],
@@ -208,35 +218,77 @@ export function dateFromGit(absPath: string): string | undefined {
  * has already lost text. The raw frontmatter still has it: take the whole
  * remainder of the line as the value and let the writer quote it.
  */
-export function recoverUnsafeScalars(frontmatterText: string): Array<[string, string | string[]]> {
+export function recoverUnsafeScalars(
+  frontmatterText: string,
+  data: Record<string, unknown>,
+): Array<[string, string | string[]]> {
   const out = new Map<string, string | string[]>();
   let currentKey: string | null = null;
-  let items: string[] = [];
-  let itemsUnsafe = false;
+  let inBlockScalar = false;
+  let items: Array<{ raw: string; quoted: boolean; cut: boolean }> = [];
   const flush = () => {
-    if (currentKey && itemsUnsafe && items.length) out.set(currentKey, items);
+    const key = currentKey;
+    const parsed = key === null ? undefined : data[key];
+    // Recover a list only when the parsed value is a flat list of strings with
+    // one entry per collected item; anything nested or quoted is left alone.
+    if (
+      key !== null &&
+      items.length &&
+      items.some((i) => i.cut) &&
+      Array.isArray(parsed) &&
+      parsed.length === items.length &&
+      parsed.every((v) => typeof v === "string")
+    ) {
+      out.set(
+        key,
+        items.map((item, index) =>
+          item.cut && !item.quoted ? item.raw : (parsed[index] as string),
+        ),
+      );
+    }
     items = [];
-    itemsUnsafe = false;
   };
   for (const rawLine of frontmatterText.split(/\r?\n/)) {
     const keyed = /^([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*))?$/.exec(rawLine);
     if (keyed) {
       flush();
       currentKey = keyed[1] ?? null;
-      const value = keyed[2]?.trim();
+      const value = keyed[2]?.trim() ?? "";
+      inBlockScalar = /^[|>]/.test(value);
       if (value && !/^["'[{|>]/.test(value) && value.includes(" #") && currentKey) {
-        out.set(currentKey, value);
+        if (typeof data[currentKey] === "string") out.set(currentKey, value);
       }
       continue;
     }
-    const item = /^\s*-\s+(.*)$/.exec(rawLine);
+    if (inBlockScalar) continue;
+    const item = /^\s{0,2}-\s+(.*)$/.exec(rawLine);
     if (item && currentKey) {
       const value = (item[1] ?? "").trim();
       const quoted = /^["']/.test(value);
-      items.push(quoted ? value.slice(1, -1) : value);
-      if (!quoted && value.includes(" #")) itemsUnsafe = true;
+      items.push({ raw: value, quoted, cut: !quoted && value.includes(" #") });
+    } else if (/^\s+\S/.test(rawLine)) {
+      // Deeper nesting under this key: not a flat list, never rebuilt.
+      items = [];
+      currentKey = null;
     }
   }
   flush();
   return [...out.entries()];
+}
+
+/** An enum or date value the rules already accept needs no recovery. */
+function validAsIs(field: string, value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  switch (field) {
+    case "problem_type":
+      return (PROBLEM_TYPES as readonly string[]).includes(value);
+    case "severity":
+      return (SEVERITIES as readonly string[]).includes(value);
+    case "resolution_type":
+      return (RESOLUTION_TYPES as readonly string[]).includes(value);
+    case "date":
+      return /^\d{4}-\d{2}-\d{2}$/.test(value);
+    default:
+      return false;
+  }
 }

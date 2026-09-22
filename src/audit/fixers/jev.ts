@@ -202,7 +202,7 @@ export async function jevFixes(
     situations = tagged(
       extractSituations(doc.body)
         .map((c) => c.text)
-        .filter((c) => !existingSituations.includes(c)),
+        .filter((c) => !existingSituations.includes(c) && !isGenericAppliesWhen(c, title)),
       "c",
     );
     if (Object.keys(situations).length) {

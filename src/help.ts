@@ -158,7 +158,13 @@ Options
   --yes                     With --fix: apply without the prompt (required off a TTY)
   --model <name>            TypeSafe model (default jev-latest)
 
-Exit codes: 0 all files pass; 6 a file fails; 2 usage; 3 --fix without a key; 4 no corpus.
+The Jev fixers hold answers to bars the report echoes under "thresholds": a Choice below
+0.4, a tag below 0.6, or a situation or symptom below 0.7 goes to the author instead.
+The exit code always describes the files on disk: after --dry-run or a declined prompt
+the summary's "after fixing" (JSON: summary.after_fix) says what a --yes run would leave.
+
+Exit codes: 0 all files pass; 6 a file fails; 2 usage; 3 --fix without a key; 4 no corpus;
+5 the judge failed during --fix (nothing is written then).
 `;
 
 export const DOCTOR_HELP = `compound doctor: check the key, the corpus, and pack sources

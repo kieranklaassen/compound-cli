@@ -4,7 +4,7 @@ import { HELP_OPTION, type OptionSpecs, parseCommandArgs, ROOT_OPTION } from "..
 import { type AuditedFile, auditFiles, loadAuditCorpus } from "../audit/audit.ts";
 import { splitDocument } from "../audit/document.ts";
 import { deterministicFixes } from "../audit/fixers/deterministic.ts";
-import { jevFixes, type NeedsAuthor } from "../audit/fixers/jev.ts";
+import { jevFixes, type NeedsAuthor, THRESHOLDS } from "../audit/fixers/jev.ts";
 import {
   type AuditReport,
   type FileAudit,
@@ -42,6 +42,11 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   if (v.help) {
     ctx.stdout(AUDIT_HELP);
     return EXIT.OK;
+  }
+  if (parsed.positionals.length) {
+    throw new UsageError(
+      `audit takes no file arguments (got ${parsed.positionals.join(" ")}); it walks <root>/solutions, use --root to choose the repository`,
+    );
   }
   if ((v["dry-run"] || v.yes) && !v.fix) {
     throw new UsageError("--dry-run and --yes only apply with --fix");
@@ -97,6 +102,7 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     schema_version: 1,
     strict: Boolean(v.strict),
     fix: mode,
+    thresholds: judge ? THRESHOLDS : null,
     summary: summarize(files, Boolean(v.strict)),
     files,
     usage: judge ? judge.usage.snapshot() : null,
@@ -182,11 +188,27 @@ export async function proposeFixes(
       );
       if (!jev.changes.length) break;
     }
+    // A change that restates the current value is not a change.
+    const effective = changes.filter(
+      (c) => JSON.stringify(c.value) !== JSON.stringify(source.doc.data[c.field]),
+    );
+    changes.splice(0, changes.length, ...effective);
     const rewritten = rewriteFrontmatter(source.doc, changes);
     const remaining = runRules(splitDocument(rewritten.text), {
       path: source.path,
       kind: source.kind,
     });
+    // A fixable finding no fixer could settle is the author's, and the report says so.
+    for (const f of remaining) {
+      const field = f.field ?? "*";
+      if (
+        f.fixable &&
+        !changes.some((c) => c.field === field) &&
+        !needsAuthor.some((n) => n.field === field)
+      ) {
+        needsAuthor.push({ field, reason: `no fixer could supply a value (${f.rule})` });
+      }
+    }
     const fix: FileFix = {
       changes,
       needs_author: needsAuthor,

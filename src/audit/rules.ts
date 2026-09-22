@@ -14,6 +14,8 @@ import {
 export type Severity = "error" | "warning";
 export type DocumentKind = "solution" | "pack_rule";
 
+export type Fixer = "deterministic" | "jev" | null;
+
 export type Finding = {
   rule: string;
   severity: Severity;
@@ -21,6 +23,36 @@ export type Finding = {
   message: string;
   /** A fixer exists for this finding (deterministic or Jev). */
   fixable: boolean;
+  /** Which fixer handles it: deterministic first, Jev when spelling cannot settle it. */
+  fixer: Fixer;
+};
+
+/** The fixer class per rule; the README table is the prose form of this map. */
+export const FIXERS: Record<string, Fixer> = {
+  "frontmatter.unsafe_scalar": "deterministic",
+  "title.missing": "deterministic",
+  "date.missing": "deterministic",
+  "date.invalid": "deterministic",
+  "problem_type.missing": "jev",
+  "problem_type.invalid": "deterministic",
+  "module.missing": "jev",
+  "component.missing": "jev",
+  "severity.missing": "jev",
+  "severity.invalid": "deterministic",
+  "symptoms.missing": "jev",
+  "root_cause.missing": "jev",
+  "resolution_type.missing": "jev",
+  "resolution_type.invalid": "deterministic",
+  "applies_when.missing": "jev",
+  "applies_when.generic": "jev",
+  "applies_when.not_a_list": "deterministic",
+  "symptoms.not_a_list": "deterministic",
+  "tags.missing": "jev",
+  "tags.format": "deterministic",
+  "tags.too_many": "deterministic",
+  "tags.not_a_list": "deterministic",
+  "tags.empty_item": "deterministic",
+  "list.duplicate": "deterministic",
 };
 
 const finding = (
@@ -29,7 +61,14 @@ const finding = (
   field: string | null,
   message: string,
   fixable = false,
-): Finding => ({ rule, severity, field, message, fixable });
+): Finding => ({
+  rule,
+  severity,
+  field,
+  message,
+  fixable,
+  fixer: fixable ? (FIXERS[rule] ?? null) : null,
+});
 
 /** Situations too vague to help a judge decide anything. */
 const GENERIC_APPLIES_WHEN = [
@@ -281,7 +320,7 @@ export function runRules(doc: SplitDocument, context: RuleContext): Finding[] {
   if (track === "bug") {
     const symptoms = checkList("symptoms", data.symptoms, out, {
       max: LIMITS.symptomsMax,
-      fixable: true,
+      fixable: false,
     });
     if (symptoms === null || symptoms.length === 0) {
       out.push(
@@ -328,7 +367,7 @@ export function runRules(doc: SplitDocument, context: RuleContext): Finding[] {
       );
     }
   } else {
-    checkList("symptoms", data.symptoms, out, { max: LIMITS.symptomsMax, fixable: true });
+    checkList("symptoms", data.symptoms, out, { max: LIMITS.symptomsMax, fixable: false });
     if (data.resolution_type !== undefined && data.resolution_type !== null) {
       if (!(RESOLUTION_TYPES as readonly string[]).includes(String(data.resolution_type))) {
         out.push(

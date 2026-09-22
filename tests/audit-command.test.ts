@@ -156,6 +156,11 @@ describe("compound audit --fix", () => {
     expect(noFix.stderr).toContain("TYPESAFE_API_KEY");
     const stray = await runCli(["audit", "--root", root, "--yes"], { env: noKey });
     expect(stray.code).toBe(EXIT.USAGE);
+    const positional = await runCli(["audit", "--root", root, "docs/solutions/x.md"], {
+      env: noKey,
+    });
+    expect(positional.code).toBe(EXIT.USAGE);
+    expect(positional.stderr).toContain("takes no file arguments");
     const noTty = await runCli(["audit", "--root", root, "--fix"], { env: withJudge });
     expect(noTty.code).toBe(EXIT.USAGE);
     expect(noTty.stderr).toContain("--yes");
@@ -175,8 +180,18 @@ describe("compound audit --fix", () => {
     });
     const report = JSON.parse(result.stdout);
     expect(report.fix).toBe("dry-run");
+    expect(result.code).toBe(EXIT.FINDINGS);
     expect(report.summary.fixes_proposed).toBeGreaterThan(10);
     expect(report.summary.fixes_applied).toBe(0);
+    // The summary describes the disk; the projection says what a --yes run would leave.
+    expect(report.summary.files_failing).toBe(12);
+    expect(report.summary.after_fix.files_failing).toBeLessThan(12);
+    expect(report.thresholds).toEqual({ choice: 0.4, tag: 0.6, situation: 0.7, symptom: 0.7 });
+    expect(
+      report.files.every((f: { findings: Array<{ fixer: unknown }> }) =>
+        f.findings.every((x) => "fixer" in x),
+      ),
+    ).toBe(true);
     const enums = report.files.find((f: { path: string }) => f.path.endsWith("enum-casing.md"));
     expect(enums.fix.diff).toContain("-problem_type: Best Practice");
     expect(enums.fix.diff).toContain("+problem_type: best_practice");
@@ -345,7 +360,11 @@ describe("robustness", () => {
     const fix = await runCli(["audit", "--root", root, "--fix", "--dry-run", "--json"], {
       env: withJudge,
     });
-    expect(fix.code).toBe(EXIT.OK);
+    // A dry run writes nothing, so the exit code still describes the corpus on disk.
+    expect(fix.code).toBe(EXIT.FINDINGS);
+    const projected = JSON.parse(fix.stdout).summary;
+    expect(projected.files_failing).toBe(1);
+    expect(projected.after_fix.files_failing).toBe(0);
     // One file needs Jev (applies_when), one Noul batch: far under one request per file.
     expect(judge.requests() - before).toBeLessThanOrEqual(2);
   });

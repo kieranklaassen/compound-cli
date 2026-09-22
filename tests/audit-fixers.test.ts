@@ -171,11 +171,32 @@ describe("deterministic fixers", () => {
     expect(
       recoverUnsafeScalars(
         "title: Retry budget #2 for the client\ntags:\n  - retry #1\n  - safe\nsafe: yes",
+        { title: "Retry budget", tags: ["retry", "safe"], safe: true },
       ),
     ).toEqual([
       ["title", "Retry budget #2 for the client"],
       ["tags", ["retry #1", "safe"]],
     ]);
+    // Nested keys, block scalars, and a valid value with a trailing comment are left alone.
+    expect(
+      recoverUnsafeScalars(
+        "meta:\n  owner: x\n  items:\n    - a #b\nnotes: |\n  - see #3\nseverity: high # TODO",
+        {
+          meta: { owner: "x", items: ["a"] },
+          notes: "- see #3\n",
+          severity: "high",
+        },
+      ),
+    ).toEqual([["severity", "high # TODO"]]);
+    const commented = splitDocument(
+      "---\ntitle: A valid title with words\nseverity: high # TODO revisit\n---\nbody\n",
+    );
+    const changes = deterministicFixes(
+      commented,
+      runRules(commented, { path: "x.md", kind: "solution" }),
+      NO_GIT,
+    );
+    expect(changes.find((c) => c.field === "severity")).toBeUndefined();
     const { doc, findings } = fixture("unsafe-scalar.md");
     const rewritten = rewriteFrontmatter(doc, deterministicFixes(doc, findings, NO_GIT));
     expect(rewritten.frontmatterText).toContain('title: "Retry budget #2 for the HTTP client"');
@@ -376,7 +397,7 @@ describe("writer", () => {
     ).toBe(
       `--- a/docs/solutions/enum-casing.md
 +++ b/docs/solutions/enum-casing.md
-@@ -2,8 +2,8 @@
+@@ -3,8 +3,8 @@
  date: 2026-01-01
  module: http
  component: api
@@ -404,6 +425,14 @@ describe("writer", () => {
         "\uFEFF---\r\n# kept comment\r\ntitle: Something about retries here\r\nseverity: high\r\n---\r\n",
       ),
     ).toBe(true);
+
+    // A stray CRLF inside a LF body must not turn the whole file into CRLF.
+    const mixed = splitDocument(
+      "---\ntitle: Something about retries here\nseverity: HIGH\n---\n# Body\n\nline one\r\nline two\n",
+    );
+    expect(mixed.eol).toBe("\n");
+    expect(mixed.body).toBe("# Body\n\nline one\r\nline two\n");
+    expect(rewriteFrontmatter(mixed, []).text).toBe(mixed.raw);
 
     const empty = splitDocument("---\n---\nbody\n");
     const grown = rewriteFrontmatter(empty, [

@@ -47,10 +47,13 @@ export function rewriteFrontmatter(doc: SplitDocument, changes: FieldChange[]): 
   return { text, frontmatterText };
 }
 
-/** A unified diff of two texts, for the frontmatter block only, with the path as the header. */
+/**
+ * A unified diff of the frontmatter block, with the file path as the header
+ * and line numbers as they are in the file (the opening `---` is line 1).
+ */
 export function unifiedDiff(path: string, before: string, after: string): string {
-  const a = before.split(/\r?\n/);
-  const b = after.split(/\r?\n/);
+  const a = before === "" ? [] : before.split(/\r?\n/);
+  const b = after === "" ? [] : after.split(/\r?\n/);
   const ops = diffLines(a, b);
   const out = [`--- a/${path}`, `+++ b/${path}`];
   let i = 0;
@@ -75,10 +78,10 @@ export function unifiedDiff(path: string, before: string, after: string): string
       end += run;
     }
     const hunk = ops.slice(start, end);
-    const aStart = (hunk[0]?.aIndex ?? 0) + 1;
-    const bStart = (hunk[0]?.bIndex ?? 0) + 1;
     const aCount = hunk.filter((o) => o.kind !== "add").length;
     const bCount = hunk.filter((o) => o.kind !== "remove").length;
+    const aStart = aCount === 0 ? 0 : (hunk[0]?.aIndex ?? 0) + 2;
+    const bStart = bCount === 0 ? 0 : (hunk[0]?.bIndex ?? 0) + 2;
     out.push(`@@ -${aStart},${aCount} +${bStart},${bCount} @@`);
     for (const op of hunk) {
       out.push(`${op.kind === "add" ? "+" : op.kind === "remove" ? "-" : " "}${op.line}`);
