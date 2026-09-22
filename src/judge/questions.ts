@@ -22,7 +22,7 @@ export function sectionTag(index: number): string {
 }
 
 const TIER_ONE_TASK =
-  "Decide which recorded learnings and pack rules apply to the work described in `work`. Each candidate is judged from its frontmatter only: its title, the applies_when situations its author wrote, tags, module, problem type, component, and symptoms.";
+  "Decide which recorded learnings and pack rules apply to the work described in `work`. Each candidate is judged from its frontmatter and its outline: its title, the applies_when situations its author wrote, tags, module, problem type, component, symptoms, and section headings.";
 
 const APPLIES_CRITERIA = {
   yes: "The candidate's situation, problem, rule, or decision is one this work is in or will meet, so the person doing the work should read it before proceeding.",
@@ -70,6 +70,17 @@ function boundedList(items: string[]): string[] {
     .map((item) => item.slice(0, VIEW_LIMITS.listItemChars));
 }
 
+/** The document's section headings, bounded: an outline of what the body covers. */
+export function bodyHeadings(body: string, limit = 8): string[] {
+  const out: string[] = [];
+  for (const match of body.matchAll(/^#{2,3}\s+(.+?)\s*$/gm)) {
+    const heading = (match[1] ?? "").replace(/[*_`]/g, "").trim();
+    if (heading && !out.includes(heading)) out.push(heading.slice(0, 80));
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function tierOneRequest(
   work: JudgeWork,
   batch: Candidate[],
@@ -80,14 +91,17 @@ export function tierOneRequest(
   batch.forEach((candidate, index) => {
     const tag = candidateTag(index);
     tags.set(tag, candidate);
-    candidates[tag] = frontmatterView(candidate);
+    const headings = bodyHeadings(candidate.body);
+    candidates[tag] = headings.length
+      ? { ...frontmatterView(candidate), headings }
+      : frontmatterView(candidate);
     questions[tag] =
       candidate.kind === "pack_candidate"
         ? noul(
             `Should the pack tagged ${tag} be adopted for the work in \`work\`? Judge it from \`candidates.${tag}\`: its \`applies_when\` lists the situations that call for the pack; apply \`criteria.adopt\`.`,
           )
         : noul(
-            `Does the item tagged ${tag} apply to the work in \`work\`? Judge it from \`candidates.${tag}\`: its \`applies_when\`, title, tags, module, and problem type; apply \`criteria.applies\`.`,
+            `Does the item tagged ${tag} apply to the work in \`work\`? Judge it from \`candidates.${tag}\`: its \`applies_when\`, title, headings, tags, module, and problem type; apply \`criteria.applies\`.`,
           );
   });
   return {
