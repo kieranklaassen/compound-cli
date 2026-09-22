@@ -30,7 +30,7 @@ import { NO_FILTERS } from "../find/filters.ts";
 import { type JudgeSettings, runFind } from "../find/find.ts";
 import { BENCH_HELP } from "../help.ts";
 import { buildWorkState } from "../input/work-state.ts";
-import { CASSETTE_DIR_VARIABLE, cassetteMode } from "../judge/api-key.ts";
+import { CASSETTE_DIR_VARIABLE, type CassetteMode, cassetteMode } from "../judge/api-key.ts";
 import { judgeFromEnv } from "../judge/client.ts";
 import { Semaphore } from "../judge/semaphore.ts";
 import { resolveJudgeSettings } from "./find-options.ts";
@@ -97,11 +97,10 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   const warnings = new Set<string>(corpus.warnings);
   const mode = cassetteMode(ctx.env);
   const manifest = readManifest(ctx, mode);
-  const thresholdDrift =
-    manifest !== undefined && mode === "replay" && manifest.threshold !== settings.threshold;
-  if (thresholdDrift) {
+  const pinFailure = thresholdPinFailure(manifest, mode, settings.threshold);
+  if (pinFailure) {
     warnings.add(
-      `cassettes were recorded at threshold ${manifest.threshold}; this run scores at ${settings.threshold} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
+      `${pinFailure} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
     );
   }
   const gate = new Semaphore(jobs);
@@ -175,7 +174,7 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     cassette_mode: mode,
     warnings: [...warnings],
   };
-  if (mode === "record") writeManifest(ctx, settings, report.model);
+  if (mode === "record" || mode === "auto") writeManifest(ctx, settings, report.model);
 
   if (v.out) {
     const outPath = resolve(ctx.cwd, v.out);
@@ -187,11 +186,7 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
 
   if (v["enforce-floor"]) {
     const failures = floorFailures(report.aggregate, file.floor ?? {});
-    if (thresholdDrift) {
-      failures.push(
-        `threshold ${settings.threshold} differs from the recorded ${manifest.threshold}`,
-      );
-    }
+    if (pinFailure) failures.push(pinFailure);
     if (failures.length) {
       for (const failure of failures) ctx.stderr(`compound bench: ${failure}\n`);
       return EXIT.INTERNAL;
@@ -353,6 +348,23 @@ type Manifest = {
 function manifestPath(ctx: Context): string | undefined {
   const dir = ctx.env[CASSETTE_DIR_VARIABLE]?.trim();
   return dir ? resolve(ctx.cwd, dir, "manifest.json") : undefined;
+}
+
+/**
+ * A replay scores recorded answers, so only the pin makes a threshold change
+ * visible: a pin that is missing is as unsound as one that disagrees.
+ */
+function thresholdPinFailure(
+  manifest: Manifest | undefined,
+  mode: CassetteMode,
+  threshold: number,
+): string | undefined {
+  if (mode !== "replay") return undefined;
+  if (manifest === undefined)
+    return "the cassettes have no readable manifest.json pinning the threshold they were recorded at";
+  if (manifest.threshold !== threshold)
+    return `threshold ${threshold} differs from the recorded ${manifest.threshold}`;
+  return undefined;
 }
 
 function readManifest(ctx: Context, mode: string): Manifest | undefined {

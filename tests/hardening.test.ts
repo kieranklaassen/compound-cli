@@ -436,6 +436,25 @@ describe("bench gate fidelity", () => {
     );
   });
 
+  test("a replay with no manifest fails the gate: nothing pins the recorded threshold", async () => {
+    const unpinned = mkdtempSync(join(tmpdir(), "compound-cli-unpinned-"));
+    cpSync(join(CASSETTES, "bench-fixture"), unpinned, {
+      recursive: true,
+      filter: (src) => !src.endsWith("manifest.json"),
+    });
+    const cases = casesFile(
+      "unpinned",
+      ["docs/solutions/cli/exit-codes-for-expected-empty-results.md"],
+      { macro_recall: 0.5 },
+    );
+    const result = await runCli(
+      ["bench", "--cases", cases, "--root", CORPUS, "--json", "--enforce-floor"],
+      { env: { ...env, COMPOUND_CASSETTE_DIR: unpinned } },
+    );
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("no readable manifest.json");
+  });
+
   test("the corpus block clones through the git cache; an unreachable ref exits 4", async () => {
     const work = mkdtempSync(join(tmpdir(), "compound-cli-corpus-"));
     cpSync(join(CORPUS, "docs"), join(work, "docs"), { recursive: true });
