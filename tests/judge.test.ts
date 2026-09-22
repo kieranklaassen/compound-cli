@@ -17,7 +17,12 @@ type Recorded = {
   auth: string | null;
 };
 
-type ServerOptions = { delayMs?: number; omitKey?: string; wrongTypeKey?: string };
+type ServerOptions = {
+  /** Per-request delay; a function receives the 0-based request index. */
+  delayMs?: number | ((index: number) => number);
+  omitKey?: string;
+  wrongTypeKey?: string;
+};
 
 /** A fake TypeSafe server: records every request and answers each noul with 0.75. */
 function fakeServer(statuses: number[] = [], options: ServerOptions = {}) {
@@ -28,10 +33,13 @@ function fakeServer(statuses: number[] = [], options: ServerOptions = {}) {
     const headers = new Headers(init?.headers);
     const body = JSON.parse(String(init?.body)) as Recorded["body"];
     requests.push({ body, auth: headers.get("authorization") });
+    const index = requests.length - 1;
     inFlight++;
     peak = Math.max(peak, inFlight);
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(resolve, options.delayMs ?? 5);
+      const delay =
+        typeof options.delayMs === "function" ? options.delayMs(index) : (options.delayMs ?? 5);
+      const timer = setTimeout(resolve, delay);
       init?.signal?.addEventListener("abort", () => {
         clearTimeout(timer);
         reject(init.signal?.reason ?? new Error("aborted"));
@@ -164,8 +172,9 @@ describe("createJudge", () => {
 
   test("a failing batch aborts its siblings instead of letting them run and bill", async () => {
     // Eight batches, two slots: the first request fails at once, the second is
-    // in flight, and the remaining six must never be sent.
-    const server = fakeServer([400], { delayMs: 40 });
+    // still in flight when the abort arrives, and the remaining six must never
+    // be sent. The failing request answers first so the outcome is deterministic.
+    const server = fakeServer([400], { delayMs: (index) => (index === 0 ? 5 : 80) });
     const judge = createJudge({ apiKey: KEY, fetch: server.fetch, parallel: 2, retry: FAST_RETRY });
     const started = performance.now();
     await expect(judge.ask({}, nouls(1600))).rejects.toThrow(/HTTP 400/);
