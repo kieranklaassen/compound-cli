@@ -26,6 +26,7 @@ PARSER.add_argument("--docs", default="docs", help="artifact root inside the rep
 PARSER.add_argument("--out", default="bench", help="output directory, relative to --root (default bench)")
 PARSER.add_argument("--floor-macro", type=float, default=0.0, help="macro recall floor written into the primary cases files")
 PARSER.add_argument("--floor-negatives", type=float, default=1.0, help="negatives floor written into the primary cases files")
+PARSER.add_argument("--floor-precision", type=float, default=0.0, help="precision lower bound floor written into the primary cases files (0 disables)")
 ARGS = PARSER.parse_args()
 ROOT = os.path.abspath(ARGS.root)
 DOCS = ARGS.docs
@@ -220,7 +221,7 @@ for split in ("dev", "heldout"):
         "name": f"{os.path.basename(ROOT)}-{split}",
         "description": f"Citation gold set, {split} split. Positives are plan-to-learning citations where the learning is dated on or before the plan; the query is the plan file itself through the plan channel. Negatives are synthetic unrelated work (gated at 100 percent). Private to the repository it was built from.",
         "corpus": None,
-        "floor": {"macro_recall": ARGS.floor_macro, "negatives_correct": ARGS.floor_negatives},
+        "floor": {"macro_recall": ARGS.floor_macro, "negatives_correct": ARGS.floor_negatives, "precision_lower_bound": ARGS.floor_precision},
         "cases": [positive_case(p, "plan") for p in pos] + neg_cases,
     }
     with open(os.path.join(OUT, f"{split}.json"), "w") as fh:

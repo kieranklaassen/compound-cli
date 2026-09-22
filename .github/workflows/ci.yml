@@ -62,7 +62,8 @@ jobs:
           git -C cora checkout -q FETCH_HEAD
       - if: env.CORA_READ_TOKEN != ''
         name: Rebuild the held-out set from Cora's own plans
-        run: python3 bench/scripts/build-citation-gold.py --root cora --floor-macro 0.55
+        # Live on the recorded commit: macro recall 62.5 percent, precision lower bound 10.5 percent.
+        run: python3 bench/scripts/build-citation-gold.py --root cora --floor-macro 0.55 --floor-precision 0.08
       - if: env.CORA_READ_TOKEN != ''
         name: Replay the held-out set and enforce its floors
         run: COMPOUND_CASSETTE_MODE=replay COMPOUND_CASSETTE_DIR=bench/fixtures/cassettes/cora-heldout bun run src/bin.ts bench --cases cora/bench/cases/heldout.json --root cora --jobs 4 --enforce-floor

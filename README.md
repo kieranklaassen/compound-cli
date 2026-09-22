@@ -179,11 +179,11 @@ The cases file carries three floors (`macro_recall`, `negatives_correct`, `preci
 The Cora gold set is built from Cora's own plans and never leaves a Cora checkout. `bench/scripts/build-citation-gold.py --root <checkout>` walks `docs/plans/`, keeps every citation of a `docs/solutions/` file whose learning is dated on or before the plan, and writes `bench/cases/{dev,heldout}.json` inside that checkout. The primary query is the plan file itself through the plan channel, from a copy with every citation line removed (those lines are where the labels come from, so leaving them in would hand the judge the answer). Title-plus-summary and title-only variants measure noisy inputs; uncited plans are a diagnostic, never a gate. Plans split 60/40 into dev and held-out by hash.
 
 ```bash
-python3 bench/scripts/build-citation-gold.py --root ~/src/cora --floor-macro 0.55
+python3 bench/scripts/build-citation-gold.py --root ~/src/cora --floor-macro 0.55 --floor-precision 0.08
 compound bench --cases ~/src/cora/bench/cases/dev.json --root ~/src/cora --jobs 4 --precision-floor 0.30 --json --out /tmp/cora-bench.json
 ```
 
-CI replays the held-out split too. The `bench-heldout` job clones Cora at the commit the cassettes were recorded against (a `CORA_READ_TOKEN` repository secret with read access; without it the job says so and skips), rebuilds the cases with the same script, and replays `bench/fixtures/cassettes/cora-heldout/` with `--enforce-floor`. Those 2,211 cassettes hold only answers (probabilities, the rubric legend, section tags), no plan or learning text. `CORA_ROOT=~/src/cora bun run bench:heldout` does the same locally. Re-record with `COMPOUND_CASSETTE_MODE=record` after a change to question wording or the judge state, then bump `CORA_COMMIT` in the workflow if Cora moved.
+CI replays the held-out split too. The `bench-heldout` job clones Cora at the commit the cassettes were recorded against (a `CORA_READ_TOKEN` repository secret with read access; without it the job says so and skips), rebuilds the cases with the same script, and replays `bench/fixtures/cassettes/cora-heldout/` with `--enforce-floor` (macro recall at least 0.55, precision lower bound at least 0.08, negatives at 100 percent; the recorded live values are 62.5, 10.5, and 100). Those 2,211 cassettes hold only answers (probabilities, the rubric legend, section tags), no plan or learning text. `CORA_ROOT=~/src/cora bun run bench:heldout` does the same locally. Re-record with `COMPOUND_CASSETTE_MODE=record` after a change to question wording or the judge state, then bump `CORA_COMMIT` in the workflow if Cora moved.
 
 A case's `query` may name a `plan` file (relative to the corpus root) or a `diff` file (relative to the cases file) instead of an activity.
 
