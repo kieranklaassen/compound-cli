@@ -4,6 +4,12 @@ All notable changes to compound-cli. The format follows Keep a Changelog, and th
 
 ## Unreleased
 
+### Added
+
+- `compound audit [--root] [--json] [--strict] [--packs] [--report <file>]` validates every learning under `docs/solutions/` against the plugin's frontmatter schema and parser-safety rules plus the findability rules (`applies_when` present and specific, tags lowercase, title present), reports per file, and exits 6 (new, documented) when a file fails. `--packs` audits declared pack rules with the compound-packs validator's rule set. `doctor` reports the audit counts.
+- `compound audit --fix [--dry-run] [--yes]` repairs what it can and shows every change as a diff of the frontmatter block: deterministic fixes first (date from git history or the file name, enum spelling, tag format, scalars wrapped in lists, a title from the first heading, a value cut at `' #'` recovered from the raw text), then Jev: `problem_type`, `severity`, `resolution_type` as a Choice over the schema's values; `module`, `component`, `root_cause` as a Choice over the corpus's own values, following the corpus's usage when two fit; tags as Nouls over the corpus's tags; `applies_when` and `symptoms` from sentences extracted from the body and judged one by one. Nothing is invented: a field no candidate clears is marked `needs_author`. Bodies are never touched; `--dry-run` writes nothing; off a TTY `--yes` or `--dry-run` is required; `--fix` without a key exits 3.
+- `bench/scripts/audit-agreement.ts` measures how close `--fix` gets to hand-written frontmatter, leave-one-out, with majority-class baselines.
+
 ### Changed
 
 - The plan channel carries the plan itself: up to 8,000 characters of the plan body (code fences and comments stripped) reach the judge alongside the title, summary, requirements, and decisions. On the Cora plan-channel set micro recall went 55.4 to 63.8 percent on dev and 52.2 to 64.0 on held-out with precision up; `state.plan` reports `text_chars` and `text_truncated`, a cut plan gets a warning, and the text is not echoed back in `--json`.

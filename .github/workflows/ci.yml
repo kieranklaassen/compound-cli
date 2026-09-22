@@ -21,6 +21,7 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint
       - run: bun test
+      - run: bun run src/bin.ts audit --strict
       - run: bun bin/compound.js --help
       - run: bun run build
       - run: node bin/compound.js --help

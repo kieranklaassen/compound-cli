@@ -70,6 +70,10 @@
 
 `{ schema_version, name, threshold, aggregate, f05, recall_at_precision_floor, sweep, cases, latency_ms, cost, corpus, model, cassette_mode, warnings }`. `aggregate` and each `sweep` entry carry `macro_recall`, `micro_recall`, `precision_lower_bound`, `negatives_correct`, `perfect_cases`, and `labeling_errors`. `f05` is F0.5 at the operating threshold. `recall_at_precision_floor` is `null` unless `--precision-floor <p>` was passed, else `{ precision_floor, recall, macro_recall, threshold, precision_lower_bound, negatives_correct, f05 }` for the best recall whose precision lower bound meets `p` over a 0.05 sweep (all `null` inside when no threshold meets it). Each case carries its `hits`, `found`, `missed` (with the missed path's score, tier-one score, and rank), `recall`, `precision_lower_bound`, `correct_negative`, and its own latency and cost.
 
+## audit --json
+
+`{ schema_version: 1, strict, fix, summary, files, usage, warnings }`. `fix` is `"off"`, `"dry-run"`, `"applied"`, or `"declined"`. `summary` is `{ files, passing, errors, warnings, fixable, files_failing, fixes_applied, fixes_proposed, needs_author }`. Each file is `{ path, kind, findings, fix? }` with `kind` `"solution"` or `"pack_rule"`, each finding `{ rule, severity, field, message, fixable }` (`severity` is `"error"` or `"warning"`), and, with `--fix`, `fix: { changes, needs_author, diff, written, remaining }` where each change is `{ field, value, source, score?, note }` (`source` is `"deterministic"` or `"jev"`), `needs_author` items are `{ field, reason }`, `diff` is a unified diff of the frontmatter block, and `remaining` lists the findings left after the rewrite. Exit 6 when any file's `remaining` (or `findings` without `--fix`) has an error, or a warning under `--strict`.
+
 ## Changes within schema 1
 
 Field names and types are stable; these are additions and one change of meaning, in order.
@@ -77,3 +81,4 @@ Field names and types are stable; these are additions and one change of meaning,
 - `score` for learnings and pack rules became a normalized rubric level instead of a yes/no probability, and the default `threshold` moved from 0.5 to 0.6 to match. A caller that compared `score` with its own 0.5 bar should compare with 0.6, or read `threshold` from the output.
 - Added `suggest_threshold`, `corpus.prefilter_dropped_protected`, `corpus.candidate_cap`, and `state.plan.text_chars` and `text_truncated`.
 - `bench --json` gained `f05` and `recall_at_precision_floor`.
+- Added `compound audit --json` and exit code 6.

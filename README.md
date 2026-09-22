@@ -124,6 +124,7 @@ Every outcome a caller switches on keeps its own code.
 | 3 | Not configured: `TYPESAFE_API_KEY` is unset |
 | 4 | Missing corpus: no `<root>/solutions/` and no declared packs |
 | 5 | Judge failure: TypeSafe failed after retries, or a cassette replay missed |
+| 6 | Audit found files that fail: an error, or a warning under `--strict` |
 
 Exit 1 also covers one environment case: running the `compound` bin from a git checkout under Node with no `dist/` build. The message says to use `bunx --bun` or `bun run build`.
 
@@ -190,6 +191,51 @@ A case's `query` may name a `plan` file (relative to the corpus root) or a `diff
 ### Cassettes
 
 The bench runs in CI without a key. `COMPOUND_CASSETTE_MODE=record` records every TypeSafe response under `COMPOUND_CASSETTE_DIR`, keyed by a hash of the request body; `replay` answers from those files and never touches the network; `auto` replays a recording when one exists and records a live answer when it does not, which is what an optimization loop wants: unchanged requests stay deterministic and free, only new wording costs money. Cassettes hold only the response body and status, never headers or the key. `bun run bench:record` re-records the public set after a wording change; `bun run bench:ci` replays it and fails when macro recall drops below the floor in the cases file.
+
+## audit
+
+Learnings compound only when their frontmatter lets the next run find them. `audit` checks every file under `docs/solutions/` against the plugin's schema (`skills/ce-compound/references/schema.yaml`) and its parser-safety rules (`validate-frontmatter.py`), plus the findability rules the optimization run showed matter most, and `--fix` repairs what can be repaired without inventing anything.
+
+```bash
+compound audit                      # report per file, exit 6 when a file fails
+compound audit --strict --json      # warnings fail too; the JSON contract for CI
+compound audit --fix --dry-run      # show every repair as a diff, write nothing
+compound audit --fix --yes          # apply (off a TTY, --yes or --dry-run is required)
+compound audit --packs              # also audit declared pack rules (never fixed)
+```
+
+Errors are schema and parser-safety violations; warnings are findability gaps. Exit 0 when no file has an error, 6 when one does (`--strict` makes warnings count), 3 for `--fix` without a key, 4 with no corpus.
+
+| Rule | Severity | Fixer |
+|---|---|---|
+| `frontmatter.missing`, `frontmatter.unterminated`, `frontmatter.invalid_yaml` | error | none (a hand) |
+| `frontmatter.unsafe_scalar` (unquoted `: `, ` #`, or a reserved first character) | error | deterministic: the full raw value is recovered and quoted |
+| `title.missing` | error | deterministic: the first H1 |
+| `title.weak` (placeholder, file slug, under three words) | warning | none |
+| `date.missing`, `date.invalid` | error | deterministic: the file's first commit, or a date in the file name, or the loosely written value |
+| `problem_type.missing`, `problem_type.invalid` | error | deterministic spelling (`Best Practice`, `ui-bug`), else Jev Choice over the schema's 17 values |
+| `severity.missing`, `severity.invalid` | error | deterministic spelling, else Jev Choice |
+| `module.missing` | error | Jev Choice over the values this corpus already uses |
+| `component.missing` | error | Jev Choice over the corpus's values, then the schema's suggested values |
+| bug track: `symptoms.missing` | error | extraction from the body, each sentence judged by Jev |
+| bug track: `root_cause.missing` | error | Jev Choice over the corpus's values, then the schema's suggested values |
+| bug track: `resolution_type.missing`, `resolution_type.invalid` | error | deterministic spelling, else Jev Choice |
+| `applies_when.missing`, `applies_when.generic` (`always`, under four words, a restatement of the title) | warning | extraction from the body (headings, When and If sentences, failure phrasing, section leads), each judged by Jev at 0.7; at most 5 |
+| `applies_when.too_many` (over 5), `applies_when.item_too_long` (over 300 chars) | warning | none |
+| `tags.missing` | warning | Jev Nouls over the corpus's own tags (used by two or more files), at 0.6, at most 8 |
+| `tags.format`, `tags.too_many`, `tags.not_a_list`, `applies_when.not_a_list`, `list.duplicate` | warning or error | deterministic |
+
+The Jev choices see the document's title, frontmatter, and a 6,000-character excerpt, and how often this corpus uses each candidate value, so they follow the corpus's house style rather than a generic reading. Candidate values and sentences are data under the request state, never part of a question, so a learning cannot steer its own repair. When no candidate clears the bar, the field is marked `needs_author` with the reason. Bodies are never touched: the writer edits the frontmatter block through a YAML document model, keeps key order and comments, and reassembles the file with the original body bytes and line endings.
+
+How close the auto-fix gets to hand-written frontmatter, measured leave-one-out (the file's own value never in the vocabulary offered) with `bench/scripts/audit-agreement.ts`: on the plugin's 63 learnings, `problem_type` 61 percent exact (track 95 percent, majority-class baseline 45), `severity` 71 (baseline 65), `component` 41 (baseline 53; the labels are near-synonyms), `module` 12 (the corpus uses 44 distinct values across 63 files, so the right value is rarely on offer), tags 66 percent recall of the tags that were on offer at 29 percent precision, and 67 percent of extracted `applies_when` sentences judged as belonging on the author's list. On compound-packs' 167 hand-tuned rules, `module` 49 percent (baseline 6), tags 61 percent precision and 73 percent recall of reachable tags, and `applies_when` extraction found no situation sentence in 148 rules (decision records state decisions, not situations), so those stay `needs_author`. Treat categorical fixes as proposals to read in the diff; treat the deterministic fixes and the extracted sentences as safe.
+
+In CI:
+
+```yaml
+- run: bunx --bun github:kieranklaassen/compound-cli audit --strict --report audit.json
+```
+
+`doctor` carries the audit counts too.
 
 ## doctor
 
