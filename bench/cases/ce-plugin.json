@@ -6,7 +6,7 @@
     "ref": "c152896f1cda13548fc1a05b2aff88caf8ae8dba",
     "docs_root": "docs"
   },
-  "floor": { "macro_recall": 0.85 },
+  "floor": { "macro_recall": 0.85, "negatives_correct": 1, "precision_lower_bound": 0.25 },
   "cases": [
     {
       "id": "exit-code-for-expected-empty-result",
