@@ -10,6 +10,7 @@ import type { SplitDocument } from "../document.ts";
 import { type Finding, isGenericAppliesWhen } from "../rules.ts";
 import {
   LIMITS,
+  PROBLEM_TYPE_DESCRIPTIONS,
   PROBLEM_TYPES,
   RESOLUTION_TYPES,
   SEVERITIES,
@@ -93,6 +94,7 @@ export async function jevFixes(
     choices.push({
       field: "problem_type",
       options: plain(PROBLEM_TYPES),
+      descriptions: PROBLEM_TYPE_DESCRIPTIONS,
       tagged: false,
       usage: vocabulary.enum_usage.problem_type,
     });

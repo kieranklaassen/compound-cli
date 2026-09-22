@@ -228,6 +228,8 @@ export type AuditChoice = {
   field: string;
   /** Label to the value it stands for. Schema enums use the value itself; corpus values use tags. */
   options: Record<string, string>;
+  /** For schema enums: what each value means, as the Choice's own description. */
+  descriptions?: Record<string, string>;
   /** Whether `options` keys are opaque tags whose values live in state. */
   tagged: boolean;
   /** For schema enums: how often this corpus uses each value, so the judge can follow the house style. */
@@ -256,7 +258,9 @@ export function auditChoiceRequest(
         criteria[tag] = `the value tagged ${tag} under \`vocabulary.${item.field}\``;
       }
     } else {
-      for (const value of Object.keys(item.options)) criteria[value] = `\`${value}\``;
+      for (const value of Object.keys(item.options)) {
+        criteria[value] = item.descriptions?.[value] ?? `\`${value}\``;
+      }
     }
     if (item.usage && Object.keys(item.usage).length) usage[item.field] = item.usage;
     questions[item.field] = choice(

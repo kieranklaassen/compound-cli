@@ -29,6 +29,29 @@ export const KNOWLEDGE_PROBLEM_TYPES = [
 ] as const;
 
 export const PROBLEM_TYPES = [...BUG_PROBLEM_TYPES, ...KNOWLEDGE_PROBLEM_TYPES] as const;
+
+/** What each value means, in the schema's terms, so a judge can tell near-synonyms apart. */
+export const PROBLEM_TYPE_DESCRIPTIONS: Record<(typeof PROBLEM_TYPES)[number], string> = {
+  build_error: "bug: the build or compile step failed",
+  test_failure: "bug: a test failed or the test infrastructure broke",
+  runtime_error: "bug: an exception or crash while running",
+  performance_issue: "bug: slowness, timeouts, or resource exhaustion",
+  database_issue: "bug: schema, migration, query, or data integrity problem",
+  security_issue: "bug: a vulnerability or permission gap",
+  ui_bug: "bug: wrong rendering or interaction in the interface",
+  integration_issue: "bug: a failure at the boundary with an external service or API",
+  logic_error: "bug: wrong behaviour from wrong logic, no crash",
+  best_practice:
+    "knowledge: a recommended way of working; the fallback when no narrower knowledge value fits",
+  documentation_gap: "knowledge: something was undocumented or documented wrongly",
+  workflow_issue: "knowledge: a process or sequence of steps that failed people and how it changed",
+  developer_experience: "knowledge: tooling or setup friction for developers",
+  architecture_pattern: "knowledge: how components are arranged or separated at the system level",
+  design_pattern:
+    "knowledge: a reusable structure for a recurring problem inside code, prompts, or skills",
+  tooling_decision: "knowledge: a decision about which tool, library, or command to use",
+  convention: "knowledge: an agreed rule of naming, formatting, or style the team follows",
+};
 export type ProblemType = (typeof PROBLEM_TYPES)[number];
 
 export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
