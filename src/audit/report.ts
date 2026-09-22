@@ -59,7 +59,12 @@ function fails(findings: Finding[], strict: boolean): boolean {
   return findings.some((f) => f.severity === "error" || (strict && f.severity === "warning"));
 }
 
-export function summarize(files: FileAudit[], strict: boolean): AuditSummary {
+/**
+ * `projected` is true when fixes were proposed but not written (a dry run or a
+ * declined prompt); it comes from the run mode, not from per-file flags, because
+ * an applied run also leaves `written` false on files that had nothing to write.
+ */
+export function summarize(files: FileAudit[], strict: boolean, projected = false): AuditSummary {
   let errors = 0;
   let warnings = 0;
   let fixable = 0;
@@ -67,12 +72,10 @@ export function summarize(files: FileAudit[], strict: boolean): AuditSummary {
   let proposed = 0;
   let needsAuthor = 0;
   let filesFailing = 0;
-  let projected = false;
   const after = { errors: 0, warnings: 0, files_failing: 0 };
   for (const file of files) {
     const findings = onDisk(file);
-    const projection = file.fix && !file.fix.written ? file.fix.remaining : findings;
-    if (file.fix && !file.fix.written) projected = true;
+    const projection = projected && file.fix ? file.fix.remaining : findings;
     for (const f of projection) {
       if (f.severity === "error") after.errors++;
       else after.warnings++;

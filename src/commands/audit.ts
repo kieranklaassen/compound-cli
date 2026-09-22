@@ -103,7 +103,7 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     strict: Boolean(v.strict),
     fix: mode,
     thresholds: judge ? THRESHOLDS : null,
-    summary: summarize(files, Boolean(v.strict)),
+    summary: summarize(files, Boolean(v.strict), mode === "dry-run" || mode === "declined"),
     files,
     usage: judge ? judge.usage.snapshot() : null,
     warnings: corpus.warnings,

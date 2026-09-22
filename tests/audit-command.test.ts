@@ -266,6 +266,59 @@ describe("compound audit --fix", () => {
     }
   });
 
+  test("an applied run reports no projection, even when a file was needs_author-only or a pack rule", async () => {
+    const pack = tempDir("compound-cli-pack-");
+    writeFileSync(
+      join(pack, "README.md"),
+      "---\ntitle: A pack\napplies_when:\n  - a\n  - b\n  - c\ntags: [local-pack]\n---\n# Pack\n",
+    );
+    writeFileSync(
+      join(pack, "rule.md"),
+      '---\ntitle: A rule missing its record type\napplies_when:\n  - "Deciding how to gate a feature behind a flag"\ntags: [flipper]\nmodule: flags\nproblem_type: convention\n---\n# Rule\n',
+    );
+    const root = tempRepo({
+      "docs/solutions/tables.md": readFileSync(
+        join(FIXTURE_CORPUS, "docs/solutions/applies-when-missing-no-prose.md"),
+        "utf8",
+      ),
+      "docs/solutions/enums.md": readFileSync(
+        join(FIXTURE_CORPUS, "docs/solutions/enum-casing.md"),
+        "utf8",
+      ),
+      ".compound-engineering/config.yaml": `packs:\n  - source: ${pack}\n`,
+    });
+    const applied = await runCli(["audit", "--root", root, "--packs", "--fix", "--yes", "--json"], {
+      env: withJudge,
+    });
+    const report = JSON.parse(applied.stdout);
+    expect(report.fix).toBe("applied");
+    expect(report.summary.fixes_applied).toBeGreaterThan(0);
+    expect(report.summary.needs_author).toBe(1);
+    expect(report.summary.after_fix).toBeNull();
+    // The same corpus as a dry run does carry the projection.
+    const dry = await runCli(
+      [
+        "audit",
+        "--root",
+        tempRepo({
+          "docs/solutions/enums.md": readFileSync(
+            join(FIXTURE_CORPUS, "docs/solutions/enum-casing.md"),
+            "utf8",
+          ),
+        }),
+        "--fix",
+        "--dry-run",
+        "--json",
+      ],
+      { env: withJudge },
+    );
+    expect(JSON.parse(dry.stdout).summary.after_fix).toEqual({
+      errors: 0,
+      warnings: 0,
+      files_failing: 0,
+    });
+  });
+
   test("a judge that rejects everything leaves the file to its author and invents nothing", async () => {
     const rejecting = startFakeTypeSafe({ noul: 0.1, scoreLevel: 0 });
     try {
