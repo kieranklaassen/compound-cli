@@ -1,0 +1,58 @@
+{
+  "name": "compound-cli",
+  "version": "0.1.0",
+  "description": "Jev-powered recall over Compound Engineering learnings and packs",
+  "license": "MIT",
+  "author": "Kieran Klaassen",
+  "homepage": "https://github.com/kieranklaassen/compound-cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kieranklaassen/compound-cli.git"
+  },
+  "bugs": "https://github.com/kieranklaassen/compound-cli/issues",
+  "keywords": [
+    "compound-engineering",
+    "typesafe",
+    "jev",
+    "recall",
+    "learnings",
+    "cli"
+  ],
+  "type": "module",
+  "bin": {
+    "compound-cli": "dist/cli.js",
+    "compound": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "bench/cases",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20",
+    "bun": ">=1.1"
+  },
+  "scripts": {
+    "dev": "bun run src/bin.ts",
+    "build": "bun build src/bin.ts --target=node --outfile=dist/cli.js --banner '#!/usr/bin/env node' && chmod +x dist/cli.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "bench:ci": "COMPOUND_CASSETTE_MODE=replay COMPOUND_CASSETTE_DIR=bench/fixtures/cassettes/ce-plugin bun run src/bin.ts bench --cases bench/cases/ce-plugin.json --enforce-floor",
+    "bench:record": "COMPOUND_CASSETTE_MODE=record COMPOUND_CASSETTE_DIR=bench/fixtures/cassettes/ce-plugin bun run src/bin.ts bench --cases bench/cases/ce-plugin.json",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  }
+}
