@@ -59,10 +59,9 @@ function renderHit(hit: Hit): string[] {
   if (hit.declaration) {
     lines.push("      declare with:");
     lines.push("        packs:");
-    const entries = Object.entries(hit.declaration);
-    entries.forEach(([key, value], index) =>
-      lines.push(`          ${index === 0 ? "- " : "  "}${key}: ${value}`),
-    );
+    Object.entries(hit.declaration).forEach(([key, value], index) => {
+      lines.push(`          ${index === 0 ? "- " : "  "}${key}: ${value}`);
+    });
   }
   if (hit.matched_fields.length) lines.push(`      matched: ${hit.matched_fields.join(", ")}`);
   return lines;
