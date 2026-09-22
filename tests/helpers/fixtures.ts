@@ -1,12 +1,26 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Context } from "../../src/context.ts";
 import type { ChannelInput } from "../../src/input/work-state.ts";
 
 /** A throwaway directory holding the given files (paths relative to its root). */
+const created: string[] = [];
+
+/** Remove every temp directory handed out so far; the test preload calls this once per run. */
+export function removeTempDirs(): void {
+  for (const dir of created.splice(0)) rmSync(dir, { recursive: true, force: true });
+}
+
+/** A throwaway directory under the OS temp dir, removed by the preload after the run. */
+export function tempDir(prefix = "compound-cli-"): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  created.push(dir);
+  return dir;
+}
+
 export function tempRepo(files: Record<string, string>, prefix = "compound-cli-"): string {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = tempDir(prefix);
   for (const [path, content] of Object.entries(files)) {
     const full = join(root, path);
     mkdirSync(dirname(full), { recursive: true });

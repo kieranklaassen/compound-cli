@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { readCasesFile } from "../src/bench/cases.ts";
 import { aggregate, type CaseRun, latencyStats, scoreCase } from "../src/bench/score.ts";
 import type { Candidate } from "../src/corpus/candidate.ts";
 import { UsageError } from "../src/errors.ts";
 import type { FindRun, ScoredCandidate } from "../src/find/result.ts";
-import { cassetteEnv } from "./helpers/fixtures.ts";
+import { cassetteEnv, tempDir } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 
 const CORPUS = resolve(import.meta.dir, "fixtures/corpus");
@@ -153,7 +152,7 @@ describe("readCasesFile", () => {
   });
 
   test("rejects a positive case without expected paths and a negative case with them", () => {
-    const dir = mkdtempSync(join(tmpdir(), "compound-cli-cases-"));
+    const dir = tempDir("compound-cli-cases-");
     const bad = join(dir, "bad.json");
     writeFileSync(
       bad,
@@ -190,7 +189,7 @@ describe("readCasesFile", () => {
 
 describe("compound bench command", () => {
   test("runs a local cases file against --root in replay and enforces the floor", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "compound-cli-bench-"));
+    const dir = tempDir("compound-cli-bench-");
     const cases = join(dir, "cases.json");
     writeFileSync(
       cases,
@@ -244,7 +243,7 @@ describe("compound bench command", () => {
   });
 
   test("a cases file without a corpus block and no --root is a usage error", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "compound-cli-bench-"));
+    const dir = tempDir("compound-cli-bench-");
     const cases = join(dir, "cases.json");
     writeFileSync(
       cases,

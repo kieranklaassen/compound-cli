@@ -15,22 +15,22 @@
           "3": "Directly applies: this work is in, or will meet, the situation the document records; knowing it changes what the person does or checks."
         },
         "probabilities": {
-          "0": 0.5,
-          "1": 0.2,
-          "2": 0.26,
+          "0": 0.49,
+          "1": 0.22,
+          "2": 0.25,
           "3": 0.04
         }
       },
       "where": {
         "type": "choice",
         "choice": "s05",
-        "confidence": 0.9,
+        "confidence": 0.91,
         "probabilities": {
           "s03": 0,
           "s06": 0.01,
           "s00": 0.01,
-          "s02": 0.04,
-          "s05": 0.93,
+          "s05": 0.92,
+          "s02": 0.05,
           "s04": 0,
           "s01": 0.01
         }

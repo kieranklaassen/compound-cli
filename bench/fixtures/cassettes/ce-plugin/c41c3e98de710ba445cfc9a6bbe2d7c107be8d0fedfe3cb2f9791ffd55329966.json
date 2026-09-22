@@ -6,7 +6,7 @@
     "answers": {
       "relevant": {
         "type": "score",
-        "score": 1.9,
+        "score": 1.99,
         "confidence": 0,
         "legend": {
           "0": "Unrelated: a different situation, component, and kind of problem; at most shared vocabulary.",
@@ -16,21 +16,21 @@
         },
         "probabilities": {
           "0": 0.11,
-          "1": 0.24,
-          "2": 0.28,
-          "3": 0.37
+          "1": 0.21,
+          "2": 0.26,
+          "3": 0.42
         }
       },
       "where": {
         "type": "choice",
         "choice": "s02",
-        "confidence": 0.91,
+        "confidence": 0.9,
         "probabilities": {
-          "s03": 0.02,
-          "s04": 0,
+          "s02": 0.92,
+          "s03": 0.04,
+          "s00": 0.02,
           "s01": 0.02,
-          "s02": 0.93,
-          "s00": 0.03
+          "s04": 0
         }
       }
     },

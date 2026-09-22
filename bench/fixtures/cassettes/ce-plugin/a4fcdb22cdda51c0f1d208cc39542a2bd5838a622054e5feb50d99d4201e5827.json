@@ -24,13 +24,13 @@
       "where": {
         "type": "choice",
         "choice": "s03",
-        "confidence": 0.66,
+        "confidence": 0.59,
         "probabilities": {
-          "s03": 0.73,
-          "s00": 0.1,
+          "s03": 0.67,
           "s02": 0,
-          "s01": 0.17,
-          "s04": 0
+          "s01": 0.24,
+          "s04": 0,
+          "s00": 0.09
         }
       }
     },

@@ -1,7 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { appendPackEntry, renderEntry } from "../src/commands/packs-add.ts";
 import { loadCeConfig } from "../src/config/ce-config.ts";
@@ -14,18 +13,18 @@ import { DEFAULTS } from "../src/find/defaults.ts";
 import { applyFilters, NO_FILTERS } from "../src/find/filters.ts";
 import { parseUnifiedDiff } from "../src/input/diff.ts";
 import { buildWorkState } from "../src/input/work-state.ts";
-import { fakeContext, NO_CHANNELS, tempRepo } from "./helpers/fixtures.ts";
+import { fakeContext, NO_CHANNELS, tempDir, tempRepo } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 
 const CORPUS = resolve(import.meta.dir, "fixtures/corpus");
 const CASSETTES = resolve(import.meta.dir, "fixtures/cassettes");
-const EMPTY_HOME = mkdtempSync(join(tmpdir(), "compound-cli-home-"));
+const EMPTY_HOME = tempDir("compound-cli-home-");
 const RULE = (title: string) =>
   `---\ntitle: "${title}"\napplies_when:\n  - "Always"\n---\n\n# ${title}\n`;
 
 /** A cache root where the built-in git source counts as cached and empty, so no clone is attempted. */
 function seededCacheRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), "compound-cli-cache-"));
+  const root = tempDir("compound-cli-cache-");
   mkdirSync(join(root, cacheKey(EVERY_SOURCE, "main"), "packs"), { recursive: true });
   return root;
 }
@@ -153,7 +152,7 @@ describe("diff parsing edge cases", () => {
 
 describe("symlink boundaries", () => {
   test("a docs/solutions directory that links outside the repository is skipped with a warning", () => {
-    const outside = mkdtempSync(join(tmpdir(), "compound-cli-outside-"));
+    const outside = tempDir("compound-cli-outside-");
     writeFileSync(join(outside, "private-note.md"), "# Private note\n");
     const root = tempRepo({ "README.md": "x" });
     mkdirSync(join(root, "docs"));
@@ -165,7 +164,7 @@ describe("symlink boundaries", () => {
   });
 
   test("a pack candidate whose README links outside the source is skipped", () => {
-    const outside = mkdtempSync(join(tmpdir(), "compound-cli-outside-"));
+    const outside = tempDir("compound-cli-outside-");
     writeFileSync(join(outside, "secret.md"), RULE("SECRET"));
     const root = tempRepo({
       ".compound-engineering/config.local.yaml": "pack_sources:\n  - source: packs\n",
@@ -228,7 +227,7 @@ describe("packs add hardening", () => {
   });
 
   test("a home-source declaration goes to config.local.yaml, not the shared file", async () => {
-    const home = mkdtempSync(join(tmpdir(), "compound-cli-home-"));
+    const home = tempDir("compound-cli-home-");
     cpSync(join(CORPUS, "packs"), join(home, "compound-packs", "packs"), { recursive: true });
     const root = tempRepo({ ".compound-engineering/config.yaml": "docs_root: docs\n" });
     const result = await runCli(["packs", "add", "second-pack", "--yes", "--root", root], {
@@ -247,9 +246,9 @@ describe("packs add hardening", () => {
 
 describe("git cache negative cache", () => {
   test("a failed clone is not retried within the cooldown, and refresh clears it", () => {
-    const cacheRoot = mkdtempSync(join(tmpdir(), "compound-cli-cache-"));
+    const cacheRoot = tempDir("compound-cli-cache-");
     const git = createGitCache({ CE_PACKS_CACHE_ROOT: cacheRoot, CE_PACKS_GIT_TIMEOUT: "5" });
-    const url = `file://${mkdtempSync(join(tmpdir(), "compound-cli-notarepo-"))}`;
+    const url = `file://${tempDir("compound-cli-notarepo-")}`;
     const warnings: string[] = [];
     expect(git.clone(url, "main", "test", warnings)).toBeUndefined();
     expect(git.recentlyFailed(url, "main")).toBe(true);
@@ -266,7 +265,7 @@ describe("git cache negative cache", () => {
   });
 
   test("an unwritable CE_PACKS_CACHE_ROOT degrades to no cache instead of crashing", () => {
-    const file = join(mkdtempSync(join(tmpdir(), "compound-cli-cache-")), "not-a-dir");
+    const file = join(tempDir("compound-cli-cache-"), "not-a-dir");
     writeFileSync(file, "x");
     const git = createGitCache({ CE_PACKS_CACHE_ROOT: join(file, "child") });
     expect(git.base).toBeUndefined();
@@ -287,7 +286,7 @@ describe("git-sourced packs end to end", () => {
     });
 
   beforeAll(() => {
-    work = mkdtempSync(join(tmpdir(), "compound-cli-remote-"));
+    work = tempDir("compound-cli-remote-");
     mkdirSync(join(work, "packs/gitpack"), { recursive: true });
     writeFileSync(join(work, "packs/gitpack/rule.md"), RULE("From git"));
     git(work, "init", "--quiet", "-b", "main");
@@ -298,7 +297,7 @@ describe("git-sourced packs end to end", () => {
 
   test("a tree URL clones the base repository at the ref and roots under the path", () => {
     const calls: Array<[string, string]> = [];
-    const checkout = mkdtempSync(join(tmpdir(), "compound-cli-checkout-"));
+    const checkout = tempDir("compound-cli-checkout-");
     mkdirSync(join(checkout, "packs/alpha"), { recursive: true });
     writeFileSync(join(checkout, "packs/alpha/one.md"), RULE("One"));
     const fake: GitCache = {
@@ -330,7 +329,7 @@ describe("git-sourced packs end to end", () => {
   });
 
   test("doctor reports drift for a git pack and reachability for a git source", async () => {
-    const cacheRoot = mkdtempSync(join(tmpdir(), "compound-cli-cache-"));
+    const cacheRoot = tempDir("compound-cli-cache-");
     const root = tempRepo({
       ".compound-engineering/config.yaml": `packs:\n  - source: ${remote}\n    ref: main\n    path: packs\npack_sources:\n  - source: ${remote}\n    ref: main\n    path: packs\n`,
     });
@@ -355,7 +354,7 @@ describe("git-sourced packs end to end", () => {
 });
 
 describe("bench gate fidelity", () => {
-  const CASES_DIR = mkdtempSync(join(tmpdir(), "compound-cli-bench-"));
+  const CASES_DIR = tempDir("compound-cli-bench-");
   const query =
     "Give the CLI a distinct exit code when a lookup finds nothing, so callers can tell it from a crash";
   const negative = "Rotate the TLS certificate on the load balancer before it expires";
@@ -437,7 +436,7 @@ describe("bench gate fidelity", () => {
   });
 
   test("a replay with no manifest fails the gate: nothing pins the recorded threshold", async () => {
-    const unpinned = mkdtempSync(join(tmpdir(), "compound-cli-unpinned-"));
+    const unpinned = tempDir("compound-cli-unpinned-");
     cpSync(join(CASSETTES, "bench-fixture"), unpinned, {
       recursive: true,
       filter: (src) => !src.endsWith("manifest.json"),
@@ -456,7 +455,7 @@ describe("bench gate fidelity", () => {
   });
 
   test("auto mode writes the pin for a fresh recording and keeps an existing one", async () => {
-    const unpinned = mkdtempSync(join(tmpdir(), "compound-cli-autopin-"));
+    const unpinned = tempDir("compound-cli-autopin-");
     cpSync(join(CASSETTES, "bench-fixture"), unpinned, {
       recursive: true,
       filter: (src) => !src.endsWith("manifest.json"),
@@ -504,7 +503,7 @@ describe("bench gate fidelity", () => {
   });
 
   test("the corpus block clones through the git cache; an unreachable ref exits 4", async () => {
-    const work = mkdtempSync(join(tmpdir(), "compound-cli-corpus-"));
+    const work = tempDir("compound-cli-corpus-");
     cpSync(join(CORPUS, "docs"), join(work, "docs"), { recursive: true });
     const git = (...args: string[]) =>
       spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
@@ -518,7 +517,7 @@ describe("bench gate fidelity", () => {
     const remote = `file://${work}`;
     const cacheEnv = {
       ...env,
-      CE_PACKS_CACHE_ROOT: mkdtempSync(join(tmpdir(), "compound-cli-cache-")),
+      CE_PACKS_CACHE_ROOT: tempDir("compound-cli-cache-"),
       CE_PACKS_GIT_TIMEOUT: "20",
     };
     const ok = await runCli(

@@ -6,8 +6,8 @@
     "answers": {
       "relevant": {
         "type": "score",
-        "score": 2.34,
-        "confidence": 0.34,
+        "score": 2.45,
+        "confidence": 0.45,
         "legend": {
           "0": "Unrelated: a different situation, component, and kind of problem; at most shared vocabulary.",
           "1": "Same area only: the same codebase area or technology, but its problem, rule, or decision does not come up in this work.",
@@ -16,28 +16,28 @@
         },
         "probabilities": {
           "0": 0.02,
-          "1": 0.14,
-          "2": 0.33,
-          "3": 0.51
+          "1": 0.11,
+          "2": 0.29,
+          "3": 0.58
         }
       },
       "where": {
         "type": "choice",
         "choice": "s04",
-        "confidence": 0.88,
+        "confidence": 0.9,
         "probabilities": {
-          "s03": 0,
-          "s06": 0.01,
-          "s09": 0,
-          "s10": 0,
-          "s02": 0,
-          "s07": 0,
-          "s08": 0,
-          "s00": 0.01,
           "s11": 0,
+          "s08": 0,
+          "s04": 0.92,
+          "s00": 0,
+          "s07": 0,
+          "s10": 0,
+          "s09": 0,
+          "s03": 0,
+          "s01": 0.08,
+          "s02": 0,
           "s05": 0,
-          "s04": 0.89,
-          "s01": 0.09
+          "s06": 0
         }
       }
     },

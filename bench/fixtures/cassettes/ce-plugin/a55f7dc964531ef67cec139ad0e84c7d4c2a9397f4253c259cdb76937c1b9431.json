@@ -6,7 +6,7 @@
     "answers": {
       "relevant": {
         "type": "score",
-        "score": 1.83,
+        "score": 1.95,
         "confidence": 0.39,
         "legend": {
           "0": "Unrelated: a different situation, component, and kind of problem; at most shared vocabulary.",
@@ -15,29 +15,29 @@
           "3": "Directly applies: this work is in, or will meet, the situation the document records; knowing it changes what the person does or checks."
         },
         "probabilities": {
-          "0": 0.06,
-          "1": 0.27,
-          "2": 0.45,
-          "3": 0.22
+          "0": 0.05,
+          "1": 0.23,
+          "2": 0.44,
+          "3": 0.28
         }
       },
       "where": {
         "type": "choice",
-        "choice": "s01",
-        "confidence": 0.17,
+        "choice": "s09",
+        "confidence": 0.34,
         "probabilities": {
-          "s07": 0.01,
-          "s06": 0,
-          "s08": 0.16,
-          "s00": 0.11,
-          "s05": 0.01,
-          "s04": 0.2,
-          "s02": 0.04,
-          "s09": 0.21,
           "s10": 0,
-          "s03": 0.02,
-          "s01": 0.24,
-          "s11": 0
+          "s05": 0.01,
+          "s02": 0.03,
+          "s11": 0,
+          "s06": 0,
+          "s01": 0.21,
+          "s09": 0.4,
+          "s03": 0.01,
+          "s04": 0.15,
+          "s08": 0.12,
+          "s07": 0,
+          "s00": 0.07
         }
       }
     },

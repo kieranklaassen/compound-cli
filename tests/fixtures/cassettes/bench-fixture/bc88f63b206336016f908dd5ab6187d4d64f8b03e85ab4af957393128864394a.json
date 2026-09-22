@@ -24,7 +24,7 @@
       "where": {
         "type": "choice",
         "choice": "s02",
-        "confidence": 0.98,
+        "confidence": 0.99,
         "probabilities": {
           "s03": 0,
           "s02": 0.99,

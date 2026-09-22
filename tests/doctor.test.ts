@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { tempDir } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 
 const CORPUS = resolve(import.meta.dir, "fixtures/corpus");
-const EMPTY_HOME = mkdtempSync(join(tmpdir(), "compound-cli-home-"));
+const EMPTY_HOME = tempDir("compound-cli-home-");
 
 describe("compound doctor", () => {
   test("reports a missing key without failing, plus corpus health", async () => {

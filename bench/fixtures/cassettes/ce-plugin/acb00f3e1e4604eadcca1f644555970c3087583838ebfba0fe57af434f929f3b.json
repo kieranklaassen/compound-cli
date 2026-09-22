@@ -6,8 +6,8 @@
     "answers": {
       "relevant": {
         "type": "score",
-        "score": 1.46,
-        "confidence": 0.21,
+        "score": 1.4,
+        "confidence": 0.17,
         "legend": {
           "0": "Unrelated: a different situation, component, and kind of problem; at most shared vocabulary.",
           "1": "Same area only: the same codebase area or technology, but its problem, rule, or decision does not come up in this work.",
@@ -15,29 +15,29 @@
           "3": "Directly applies: this work is in, or will meet, the situation the document records; knowing it changes what the person does or checks."
         },
         "probabilities": {
-          "0": 0.2,
+          "0": 0.23,
           "1": 0.26,
-          "2": 0.41,
-          "3": 0.13
+          "2": 0.39,
+          "3": 0.12
         }
       },
       "where": {
         "type": "choice",
         "choice": "s02",
-        "confidence": 0.25,
+        "confidence": 0.23,
         "probabilities": {
-          "s04": 0.09,
           "s05": 0.01,
+          "s04": 0.13,
           "s07": 0.02,
-          "s09": 0.05,
           "s10": 0.03,
-          "s00": 0.12,
-          "s03": 0.13,
-          "s08": 0,
-          "s02": 0.32,
+          "s09": 0.07,
+          "s00": 0.13,
+          "s03": 0.11,
           "s11": 0.01,
-          "s06": 0.22,
-          "s01": 0
+          "s02": 0.27999999999999997,
+          "s08": 0,
+          "s06": 0.2,
+          "s01": 0.01
         }
       }
     },

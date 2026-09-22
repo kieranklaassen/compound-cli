@@ -10,19 +10,19 @@
       },
       "root_cause": {
         "type": "noul",
-        "noul": 0.88
+        "noul": 0.87
       },
       "solution": {
         "type": "noul",
-        "noul": 0.71
+        "noul": 0.72
       },
       "files": {
         "type": "noul",
-        "noul": 0.58
+        "noul": 0.55
       },
       "prevention": {
         "type": "noul",
-        "noul": 0.16
+        "noul": 0.17
       }
     },
     "usage": {

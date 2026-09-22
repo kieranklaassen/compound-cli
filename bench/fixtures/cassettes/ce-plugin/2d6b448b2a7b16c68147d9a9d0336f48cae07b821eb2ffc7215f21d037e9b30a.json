@@ -24,14 +24,14 @@
       "where": {
         "type": "choice",
         "choice": "s02",
-        "confidence": 0.99,
+        "confidence": 1,
         "probabilities": {
-          "s02": 1,
           "s04": 0,
+          "s00": 0,
+          "s05": 0,
           "s03": 0,
           "s01": 0,
-          "s05": 0,
-          "s00": 0
+          "s02": 1
         }
       }
     },

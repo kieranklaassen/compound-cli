@@ -1,12 +1,11 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadCeConfig } from "../src/config/ce-config.ts";
 import { cacheKey, createGitCache } from "../src/corpus/git-cache.ts";
 import { loadPackRules, publicResolution, resolvePacks } from "../src/corpus/packs.ts";
-import { tempRepo } from "./helpers/fixtures.ts";
+import { tempDir, tempRepo } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 
 const FIXTURES = resolve(import.meta.dir, "fixtures");
@@ -16,7 +15,7 @@ const RULE = (title: string) =>
   `---\ntitle: "${title}"\napplies_when:\n  - "Always"\n---\n\n# ${title}\n`;
 
 function resolveIn(root: string, env: Record<string, string> = {}) {
-  const cacheRoot = mkdtempSync(join(tmpdir(), "compound-cli-cache-"));
+  const cacheRoot = tempDir("compound-cli-cache-");
   const git = createGitCache({ ...process.env, CE_PACKS_CACHE_ROOT: cacheRoot, ...env });
   return { resolution: resolvePacks(loadCeConfig(root), git), git, cacheRoot };
 }
@@ -130,7 +129,7 @@ describe("resolvePacks with path sources", () => {
       ".compound-engineering/config.yaml": "packs:\n  - source: packs/alpha\n",
       "packs/alpha/one.md": RULE("One"),
     });
-    const outside = mkdtempSync(join(tmpdir(), "compound-cli-outside-"));
+    const outside = tempDir("compound-cli-outside-");
     writeFileSync(join(outside, "secret.md"), RULE("Secret"));
     symlinkSync(join(outside, "secret.md"), join(root, "packs/alpha/link.md"));
     const { resolution } = resolveIn(root);
@@ -153,7 +152,7 @@ describe("resolvePacks with a git source", () => {
   let remote: string;
 
   beforeAll(() => {
-    const work = mkdtempSync(join(tmpdir(), "compound-cli-remote-"));
+    const work = tempDir("compound-cli-remote-");
     mkdirSync(join(work, "packs/gitpack"), { recursive: true });
     writeFileSync(join(work, "packs/gitpack/rule.md"), RULE("From git"));
     const git = (...args: string[]) =>
