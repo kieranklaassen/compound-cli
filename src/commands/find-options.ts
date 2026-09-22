@@ -17,10 +17,7 @@ import type { FindMode } from "../find/result.ts";
 import type { ChannelInput } from "../input/work-state.ts";
 import type { OutputFormat } from "../output/render.ts";
 
-export const FIND_OPTIONS = {
-  ...HELP_OPTION,
-  ...ROOT_OPTION,
-  ...OUTPUT_OPTIONS,
+export const CHANNEL_OPTIONS = {
   concept: { type: "string", multiple: true },
   decision: { type: "string", multiple: true },
   domain: { type: "string", multiple: true },
@@ -29,6 +26,13 @@ export const FIND_OPTIONS = {
   diff: { type: "string" },
   plan: { type: "string" },
   doc: { type: "string" },
+} as const satisfies OptionSpecs;
+
+export const FIND_OPTIONS = {
+  ...HELP_OPTION,
+  ...ROOT_OPTION,
+  ...OUTPUT_OPTIONS,
+  ...CHANNEL_OPTIONS,
   gate: { type: "boolean" },
   overlap: { type: "boolean" },
   threshold: { type: "string" },
@@ -87,31 +91,8 @@ export function resolveFindOptions(parsed: Parsed<typeof FIND_OPTIONS>): FindOpt
     root: v.root,
     output: v.json ? "json" : v.compact ? "compact" : "report",
     mode: v.gate ? "gate" : v.overlap ? "overlap" : "find",
-    input: {
-      activity: parsed.positionals[0],
-      concepts: v.concept ?? [],
-      decisions: v.decision ?? [],
-      domains: v.domain ?? [],
-      modules: v.module ?? [],
-      paths: v.path ?? [],
-      diffPath: v.diff,
-      planPath: v.plan,
-      docPath: v.doc,
-    },
-    judge: {
-      threshold: requireProbability("threshold", v.threshold, DEFAULTS.threshold),
-      tierOneThreshold: requireProbability(
-        "tier-one-threshold",
-        v["tier-one-threshold"],
-        DEFAULTS.tierOneThreshold,
-      ),
-      frontmatterOnly: Boolean(v["frontmatter-only"]),
-      batch: requireInteger("batch", v.batch, DEFAULTS.batch),
-      parallel: requireInteger("parallel", v.parallel, DEFAULTS.parallel),
-      candidateCap: requireInteger("candidate-cap", v["candidate-cap"], DEFAULTS.candidateCap),
-      excerptChars: requireInteger("excerpt-chars", v["excerpt-chars"], DEFAULTS.excerptChars),
-      model: v.model ?? DEFAULTS.model,
-    },
+    input: channelInput(parsed),
+    judge: resolveJudgeSettings(v),
     filters: {
       kinds,
       problemTypes: v["problem-type"] ?? [],
@@ -120,5 +101,50 @@ export function resolveFindOptions(parsed: Parsed<typeof FIND_OPTIONS>): FindOpt
       packs: v.pack ?? [],
     },
     consultSources: !v["no-sources"],
+  };
+}
+
+/** The judge flags every judging command shares; a spec may omit some and take the default. */
+export type JudgeFlagValues = {
+  threshold?: string | undefined;
+  "tier-one-threshold"?: string | undefined;
+  "frontmatter-only"?: boolean | undefined;
+  batch?: string | undefined;
+  parallel?: string | undefined;
+  "candidate-cap"?: string | undefined;
+  "excerpt-chars"?: string | undefined;
+  model?: string | undefined;
+};
+
+export function resolveJudgeSettings(v: JudgeFlagValues): JudgeSettings {
+  return {
+    threshold: requireProbability("threshold", v.threshold, DEFAULTS.threshold),
+    tierOneThreshold: requireProbability(
+      "tier-one-threshold",
+      v["tier-one-threshold"],
+      DEFAULTS.tierOneThreshold,
+    ),
+    frontmatterOnly: Boolean(v["frontmatter-only"]),
+    batch: requireInteger("batch", v.batch, DEFAULTS.batch),
+    parallel: requireInteger("parallel", v.parallel, DEFAULTS.parallel),
+    candidateCap: requireInteger("candidate-cap", v["candidate-cap"], DEFAULTS.candidateCap),
+    excerptChars: requireInteger("excerpt-chars", v["excerpt-chars"], DEFAULTS.excerptChars),
+    model: v.model ?? DEFAULTS.model,
+  };
+}
+
+/** The input channels from a parsed command line: the first positional plus the channel flags. */
+export function channelInput(parsed: Parsed<typeof CHANNEL_OPTIONS>): ChannelInput {
+  const v = parsed.values;
+  return {
+    activity: parsed.positionals[0],
+    concepts: v.concept ?? [],
+    decisions: v.decision ?? [],
+    domains: v.domain ?? [],
+    modules: v.module ?? [],
+    paths: v.path ?? [],
+    diffPath: v.diff,
+    planPath: v.plan,
+    docPath: v.doc,
   };
 }

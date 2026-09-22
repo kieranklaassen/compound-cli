@@ -2,7 +2,8 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSyn
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { CeConfig, PackEntry } from "../config/ce-config.ts";
-import type { Candidate } from "./candidate.ts";
+import { errorMessage } from "../util.ts";
+import type { Candidate, CandidateLoad } from "./candidate.ts";
 import { type GitCache, isGitUrl } from "./git-cache.ts";
 import { readCandidate } from "./learnings.ts";
 
@@ -36,8 +37,7 @@ export function resolvePacks(config: CeConfig, git: GitCache): PacksResolution {
     try {
       resolveEntry(entry, config.repoRoot, roots, warnings, errors, git);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      errors.push(`${entry.label}: unexpected error resolving entry: ${message}`);
+      errors.push(`${entry.label}: unexpected error resolving entry: ${errorMessage(error)}`);
     }
   }
   // First declaration wins: config.yaml precedes config.local.yaml.
@@ -286,12 +286,15 @@ export function enumeratePacks(
  * names `title:` and `applies_when:`. Same raw-text test as packs-resolve.py.
  */
 export function isKnowledgeFile(path: string): boolean {
-  let text: string;
   try {
-    text = readFileSync(path, "utf8").slice(0, FRONTMATTER_CAP);
+    return isKnowledgeText(readFileSync(path, "utf8"));
   } catch {
     return false;
   }
+}
+
+export function isKnowledgeText(raw: string): boolean {
+  let text = raw.slice(0, FRONTMATTER_CAP);
   if (text.startsWith("\uFEFF")) text = text.slice(1);
   const lines = text.split(/\r?\n/);
   if (lines[0]?.trim() !== "---") return false;
@@ -385,14 +388,20 @@ function nestedRulesWarning(packId: string, packDir: string, boundary: string): 
 }
 
 /** Every top-level rule of every resolved pack as a candidate. */
-export function loadPackRules(roots: PackRoot[]): { candidates: Candidate[]; warnings: string[] } {
+export function loadPackRules(roots: PackRoot[]): CandidateLoad {
   const candidates: Candidate[] = [];
   const warnings: string[] = [];
   for (const root of roots) {
     for (const file of containedMdFiles(root.dir, root.dir, [])) {
-      if (!isKnowledgeFile(file)) continue;
+      let raw: string;
+      try {
+        raw = readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
+      if (!isKnowledgeText(raw)) continue;
       const name = basename(file);
-      const candidate = readCandidate(file, `${root.id}/${name}`, "pack_rule", root.id, name);
+      const candidate = readCandidate(file, `${root.id}/${name}`, "pack_rule", root.id, name, raw);
       if ("error" in candidate) {
         warnings.push(`skipped ${root.id}/${name}: ${candidate.error}`);
         continue;

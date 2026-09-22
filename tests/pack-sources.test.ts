@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { appendPackEntry, renderEntry } from "../src/commands/packs-add.ts";
 import { loadCeConfig } from "../src/config/ce-config.ts";
-import type { Context } from "../src/context.ts";
 import { createGitCache } from "../src/corpus/git-cache.ts";
 import type { Workspace } from "../src/corpus/load.ts";
 import {
@@ -19,20 +18,14 @@ import { runFind } from "../src/find/find.ts";
 import { repoProfile } from "../src/input/repo-profile.ts";
 import { buildWorkState } from "../src/input/work-state.ts";
 import { suggestRequest } from "../src/judge/questions.ts";
+import { fakeContext, NO_CHANNELS } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 import { testJudge } from "./helpers/test-judge.ts";
 
 const CORPUS = resolve(import.meta.dir, "fixtures/corpus");
 const EMPTY_HOME = mkdtempSync(join(tmpdir(), "compound-cli-home-"));
 
-const ctx: Context = {
-  cwd: CORPUS,
-  env: {},
-  stdout: () => {},
-  stderr: () => {},
-  readStdin: async () => "",
-  isTTY: false,
-};
+const ctx = fakeContext({ cwd: CORPUS });
 
 describe("knownSources", () => {
   test("lists the built-ins then pack_sources, and omits ~/compound-packs when absent", () => {
@@ -104,16 +97,9 @@ describe("find with known sources", () => {
       workspace,
       state: await buildWorkState(
         {
+          ...NO_CHANNELS,
           activity:
             "Decide whether to cancel a customer's separate add-on subscription now that the new bundle covers it",
-          concepts: [],
-          decisions: [],
-          domains: [],
-          modules: [],
-          paths: [],
-          diffPath: undefined,
-          planPath: undefined,
-          docPath: undefined,
         },
         ctx,
       ),

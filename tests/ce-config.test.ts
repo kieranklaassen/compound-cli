@@ -1,22 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadCeConfig } from "../src/config/ce-config.ts";
 import { resolveRepoRoot } from "../src/config/repo-root.ts";
 import { UsageError } from "../src/errors.ts";
+import { tempRepo } from "./helpers/fixtures.ts";
 
 const FIXTURES = resolve(import.meta.dir, "fixtures");
-
-function tempRepo(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "compound-cli-config-"));
-  for (const [path, content] of Object.entries(files)) {
-    const full = join(root, path);
-    mkdirSync(join(full, ".."), { recursive: true });
-    writeFileSync(full, content);
-  }
-  return root;
-}
 
 describe("loadCeConfig", () => {
   test("config.local.yaml docs_root wins over config.yaml", () => {

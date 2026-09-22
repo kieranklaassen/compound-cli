@@ -1,18 +1,17 @@
-import { existsSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { isAbsolute, resolve } from "node:path";
 import { HELP_OPTION, type OptionSpecs, parseCommandArgs, ROOT_OPTION } from "../args.ts";
 import { loadCeConfig } from "../config/ce-config.ts";
 import { resolveRepoRoot } from "../config/repo-root.ts";
 import type { Context } from "../context.ts";
+import { hasAppliesWhen } from "../corpus/candidate.ts";
 import { createGitCache } from "../corpus/git-cache.ts";
-import { loadLearnings } from "../corpus/learnings.ts";
-import { knownSources } from "../corpus/pack-sources.ts";
-import { enumeratePacks, expandHome, loadPackRules, resolvePacks } from "../corpus/packs.ts";
+import { loadCorpus } from "../corpus/load.ts";
+import { type KnownSource, knownSources, localSourceDir } from "../corpus/pack-sources.ts";
+import { enumeratePacks } from "../corpus/packs.ts";
 import { NotConfiguredError } from "../errors.ts";
 import { EXIT } from "../exit-codes.ts";
 import { DOCTOR_HELP } from "../help.ts";
 import { API_KEY_VARIABLE, cassetteMode, hasApiKey } from "../judge/api-key.ts";
+import { homeDir } from "../util.ts";
 
 const DOCTOR_OPTIONS = {
   ...HELP_OPTION,
@@ -48,7 +47,12 @@ export type DoctorReport = {
     warnings: string[];
     errors: string[];
   };
-  known_sources: Array<{ source: string; kind: string; status: string; packs: number | null }>;
+  known_sources: Array<{
+    source: string;
+    kind: KnownSource["kind"];
+    status: string;
+    packs: number | null;
+  }>;
   cache: string | null;
 };
 
@@ -73,9 +77,11 @@ export function buildReport(
   const repo = resolveRepoRoot(ctx.cwd, rootOverride);
   const config = loadCeConfig(repo.root);
   const git = createGitCache(ctx.env);
-  const learnings = loadLearnings(repo.root, config.docsRootAbs);
-  const resolution = resolvePacks(config, git);
-  const rules = loadPackRules(resolution.roots);
+  const {
+    learnings,
+    packs: resolution,
+    packRules: rules,
+  } = loadCorpus({ repoRoot: repo.root, config, git });
 
   const roots = resolution.roots.map((root) => {
     const cached = root.url ? git.headCommit(root.dir) : null;
@@ -96,17 +102,15 @@ export function buildReport(
     };
   });
 
-  const home = ctx.env.HOME ?? homedir();
+  const home = homeDir(ctx.env);
   const sources = knownSources(config, ctx.env).map((source) => {
     if (source.kind === "local") {
-      const expanded = expandHome(source.source, home);
-      const dir = isAbsolute(expanded) ? expanded : resolve(repo.root, expanded);
-      const ok = existsSync(dir) && statSync(dir).isDirectory();
+      const dir = localSourceDir(source.source, repo.root, home);
       return {
         source: source.source,
-        kind: "local",
-        status: ok ? "present" : "missing",
-        packs: ok ? enumeratePacks(dir, dir, []).size : null,
+        kind: source.kind,
+        status: dir ? "present" : "missing",
+        packs: dir ? enumeratePacks(dir, dir, []).size : null,
       };
     }
     const ref = source.ref ?? "main";
@@ -114,7 +118,7 @@ export function buildReport(
     if (!checkSources) {
       return {
         source: `${source.source}@${ref}`,
-        kind: "git",
+        kind: source.kind,
         status: cached ? "cached" : "not checked",
         packs: null,
       };
@@ -122,14 +126,8 @@ export function buildReport(
     const remote = git.lsRemote(source.source, ref);
     return {
       source: `${source.source}@${ref}`,
-      kind: "git",
-      status: remote
-        ? cached
-          ? "reachable, cached"
-          : "reachable"
-        : cached
-          ? "unreachable, cached"
-          : "unreachable",
+      kind: source.kind,
+      status: `${remote ? "reachable" : "unreachable"}${cached ? ", cached" : ""}`,
       packs: null,
     };
   });
@@ -150,7 +148,7 @@ export function buildReport(
     learnings: {
       count: learnings.candidates.length,
       missing_applies_when: learnings.candidates
-        .filter((c) => c.appliesWhen.length === 0)
+        .filter((c) => !hasAppliesWhen(c))
         .map((c) => c.path),
       missing_date: learnings.candidates.filter((c) => !c.frontmatter.date).map((c) => c.path),
       malformed: learnings.malformed,

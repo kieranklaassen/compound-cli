@@ -1,7 +1,8 @@
-import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
-import { basename, join, relative } from "node:path";
-import { type Candidate, stringField, stringList } from "./candidate.ts";
-import { firstHeading, isFrontmatterError, parseFrontmatter } from "./frontmatter.ts";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { errorMessage } from "../util.ts";
+import { type Candidate, stringList } from "./candidate.ts";
+import { documentTitle, isFrontmatterError, parseFrontmatter } from "./frontmatter.ts";
 
 export type LearningsLoad = {
   candidates: Candidate[];
@@ -23,7 +24,7 @@ export function loadLearnings(repoRoot: string, docsRootAbs: string): LearningsL
   };
   if (!load.exists) return load;
   for (const absPath of walkMarkdown(solutionsDir)) {
-    const path = relative(repoRoot, absPath).split("\\").join("/");
+    const path = relative(repoRoot, absPath).replaceAll("\\", "/");
     const candidate = readCandidate(absPath, path, "solution", undefined);
     if ("error" in candidate) {
       load.malformed.push({ path, error: candidate.error });
@@ -44,8 +45,8 @@ export function walkMarkdown(dir: string): string[] {
   );
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
+    if (entry.isSymbolicLink()) continue;
     const full = join(dir, entry.name);
-    if (lstatSync(full).isSymbolicLink()) continue;
     if (entry.isDirectory()) found.push(...walkMarkdown(full));
     else if (entry.isFile() && entry.name.endsWith(".md")) found.push(full);
   }
@@ -58,17 +59,18 @@ export function readCandidate(
   kind: Candidate["kind"],
   packId: string | undefined,
   packPath: string | undefined = undefined,
+  /** The file's text when the caller already read it (pack rules are tested for shape first). */
+  raw?: string,
 ): Candidate | { error: string } {
-  let raw: string;
-  try {
-    raw = readFileSync(absPath, "utf8");
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
+  if (raw === undefined) {
+    try {
+      raw = readFileSync(absPath, "utf8");
+    } catch (error) {
+      return { error: errorMessage(error) };
+    }
   }
   const parsed = parseFrontmatter(raw);
   if (isFrontmatterError(parsed)) return parsed;
-  const title =
-    stringField(parsed.data.title) ?? firstHeading(parsed.body) ?? basename(path, ".md");
   return {
     id: path,
     kind,
@@ -77,7 +79,7 @@ export function readCandidate(
     packId,
     packPath,
     frontmatter: parsed.data,
-    title,
+    title: documentTitle(parsed.data, parsed.body, path),
     appliesWhen: stringList(parsed.data.applies_when),
     tags: stringList(parsed.data.tags),
     body: parsed.body,

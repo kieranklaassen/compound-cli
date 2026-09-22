@@ -1,5 +1,6 @@
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { UsageError } from "./errors.ts";
+import { errorMessage } from "./util.ts";
 
 type OptionSpec = {
   type: "string" | "boolean";
@@ -40,8 +41,7 @@ export function parseCommandArgs<S extends OptionSpecs>(argv: string[], specs: S
 }
 
 function usageMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message
+  return errorMessage(error)
     .replace(/^.*?: /, "")
     .replace(/\. To specify.*$/s, "")
     .replace(/\.$/, "");
@@ -74,19 +74,6 @@ export function requireProbability(
     throw new UsageError(`--${name} must be between 0 and 1 (got ${JSON.stringify(raw)})`);
   }
   return value;
-}
-
-export function requireOneOf<T extends string>(
-  name: string,
-  raw: string | undefined,
-  allowed: readonly T[],
-  fallback: T,
-): T {
-  if (raw === undefined) return fallback;
-  if ((allowed as readonly string[]).includes(raw)) return raw as T;
-  throw new UsageError(
-    `--${name} must be one of ${allowed.join(", ")} (got ${JSON.stringify(raw)})`,
-  );
 }
 
 export const ROOT_OPTION = {

@@ -17,7 +17,7 @@ export class UsageError extends CliError {
 }
 
 export class NotConfiguredError extends CliError {
-  constructor(variable = "TYPESAFE_API_KEY") {
+  constructor(variable: string) {
     super(
       `not configured: set ${variable} in the environment to use the TypeSafe judge`,
       EXIT.NOT_CONFIGURED,

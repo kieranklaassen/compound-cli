@@ -1,4 +1,5 @@
 import type { FindRun } from "../find/result.ts";
+import { round4 } from "../util.ts";
 import type { BenchCase } from "./cases.ts";
 
 export type CaseRun = {
@@ -120,11 +121,11 @@ export function aggregate(scores: CaseScore[], threshold: number): Aggregate {
     positive_cases: positives.length,
     negative_cases: negatives.length,
     macro_recall: positives.length
-      ? round(positives.reduce((n, s) => n + (s.recall ?? 0), 0) / positives.length)
+      ? round4(positives.reduce((n, s) => n + (s.recall ?? 0), 0) / positives.length)
       : null,
-    micro_recall: totalExpected ? round(totalFound / totalExpected) : null,
-    precision_lower_bound: totalHits ? round(totalFound / totalHits) : null,
-    negatives_correct: negatives.length ? round(negativesCorrect / negatives.length) : null,
+    micro_recall: totalExpected ? round4(totalFound / totalExpected) : null,
+    precision_lower_bound: totalHits ? round4(totalFound / totalHits) : null,
+    negatives_correct: negatives.length ? round4(negativesCorrect / negatives.length) : null,
     perfect_cases: positives.filter((s) => s.recall === 1).length + negativesCorrect,
     labeling_errors: scores.reduce((n, s) => n + s.unknown_expected.length, 0),
   };
@@ -141,8 +142,4 @@ export function latencyStats(values: number[]): BenchReport["latency_ms"] {
 
 function effective(entry: FindRun["scored"][number]): number {
   return entry.score ?? entry.tierOneScore;
-}
-
-function round(value: number): number {
-  return Number(value.toFixed(4));
 }

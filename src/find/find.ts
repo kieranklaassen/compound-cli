@@ -1,15 +1,20 @@
-import type { Candidate } from "../corpus/candidate.ts";
-import type { Workspace } from "../corpus/load.ts";
-import { loadCorpus } from "../corpus/load.ts";
+import type { Candidate, CandidateLoad } from "../corpus/candidate.ts";
+import { type CorpusLoad, loadCorpus, type Workspace } from "../corpus/load.ts";
 import { MissingCorpusError } from "../errors.ts";
 import { judgeState, type WorkState } from "../input/work-state.ts";
 import type { Judge } from "../judge/client.ts";
 import type { JudgeWork } from "../judge/questions.ts";
+import { round4 } from "../util.ts";
 import { applyFilters, type CandidateFilters } from "./filters.ts";
 import { judgeOverlap } from "./overlap.ts";
 import { prefilter } from "./prefilter.ts";
-import type { FindMode, FindRun, Hit, ScoredCandidate } from "./result.ts";
-import { SCHEMA_VERSION } from "./result.ts";
+import {
+  type FindMode,
+  type FindRun,
+  type Hit,
+  SCHEMA_VERSION,
+  type ScoredCandidate,
+} from "./result.ts";
 import { judgePackCandidates, judgeTierOne } from "./tier-one.ts";
 import { judgeTierTwo } from "./tier-two.ts";
 
@@ -27,10 +32,7 @@ export type JudgeSettings = {
 export type PackCandidateLoader = (
   workspace: Workspace,
   declaredIds: ReadonlySet<string>,
-) => {
-  candidates: Candidate[];
-  warnings: string[];
-};
+) => CandidateLoad;
 
 export type FindInput = {
   workspace: Workspace;
@@ -41,11 +43,13 @@ export type FindInput = {
   mode: FindMode;
   /** Known-source pack candidates (plan R25); omitted or `--no-sources` means none. */
   loadPackCandidates?: PackCandidateLoader;
+  /** A corpus already loaded by the caller (bench loads once for every case). */
+  corpus?: CorpusLoad;
 };
 
 export async function runFind(input: FindInput): Promise<FindRun> {
   const { workspace, state, judge, settings, filters, mode } = input;
-  const corpus = loadCorpus(workspace);
+  const corpus = input.corpus ?? loadCorpus(workspace);
   const warnings = [...corpus.warnings];
   const declaredIds = new Set(corpus.packs.roots.map((root) => root.id));
   const packCandidates = input.loadPackCandidates
@@ -59,11 +63,12 @@ export async function runFind(input: FindInput): Promise<FindRun> {
     ...packCandidates.candidates,
   ];
   if (
+    !corpus.learnings.exists &&
     corpus.learnings.candidates.length === 0 &&
     corpus.packRules.candidates.length === 0 &&
     corpus.packs.roots.length === 0
   ) {
-    if (!corpus.learnings.exists) throw new MissingCorpusError(workspace.config.docsRoot);
+    throw new MissingCorpusError(workspace.config.docsRoot);
   }
 
   const { kept, filteredOut } = applyFilters(all, filters);
@@ -79,18 +84,18 @@ export async function runFind(input: FindInput): Promise<FindRun> {
     judgePackCandidates(judge, work, packs, settings.batch),
   ]);
 
-  const scored: ScoredCandidate[] = filtered.ordered.map((candidate) => ({
-    candidate,
-    tierOneScore: tierOne.get(candidate) ?? packScores.get(candidate) ?? 0,
-    score: null,
-    passage: null,
-    matchedFields: filtered.scores.get(candidate)?.matchedFields ?? [],
-    overlap: null,
-  }));
-
-  // Pack READMEs are the whole judgment: their tier-one score is final.
-  for (const entry of scored)
-    if (entry.candidate.kind === "pack_candidate") entry.score = entry.tierOneScore;
+  const scored: ScoredCandidate[] = filtered.ordered.map((candidate) => {
+    const tierOneScore = tierOne.get(candidate) ?? packScores.get(candidate) ?? 0;
+    return {
+      candidate,
+      tierOneScore,
+      // Pack READMEs are the whole judgment: their tier-one score is final.
+      score: candidate.kind === "pack_candidate" ? tierOneScore : null,
+      passage: null,
+      matchedFields: filtered.scores.get(candidate)?.matchedFields ?? [],
+      overlap: null,
+    };
+  });
 
   const passing = scored.filter(
     (entry) =>
@@ -147,7 +152,7 @@ export async function runFind(input: FindInput): Promise<FindRun> {
       frontmatter_only: settings.frontmatterOnly,
       gate:
         mode === "gate"
-          ? { probability: round(bestScore), threshold: settings.threshold, hits: hits.length }
+          ? { probability: round4(bestScore), threshold: settings.threshold, hits: hits.length }
           : null,
       usage: judge.usage.snapshot(),
       corpus: {
@@ -183,8 +188,8 @@ function toHit(entry: ScoredCandidate): Hit {
   return {
     path: c.path,
     kind: c.kind,
-    score: round(entry.score ?? entry.tierOneScore),
-    tier_one_score: round(entry.tierOneScore),
+    score: round4(entry.score ?? entry.tierOneScore),
+    tier_one_score: round4(entry.tierOneScore),
     pack_id: c.packId ?? null,
     pack_path: c.packPath ?? null,
     title: c.title,
@@ -194,8 +199,4 @@ function toHit(entry: ScoredCandidate): Hit {
     declaration: c.declaration ?? null,
     overlap: entry.overlap,
   };
-}
-
-function round(value: number): number {
-  return Number(value.toFixed(4));
 }

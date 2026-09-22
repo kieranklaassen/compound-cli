@@ -2,6 +2,7 @@ import type { Candidate } from "../corpus/candidate.ts";
 import type { DocSummary } from "../input/doc.ts";
 import { type Judge, noulOf } from "../judge/client.ts";
 import { OVERLAP_DIMENSIONS, overlapRequest } from "../judge/questions.ts";
+import { round4 } from "../util.ts";
 import type { OverlapScores } from "./result.ts";
 
 /** Five Nouls per candidate against the draft; overall is their mean. */
@@ -32,7 +33,7 @@ export async function judgeOverlap(
         scores[dimension] = value;
         sum += value;
       }
-      scores.overall = Number((sum / OVERLAP_DIMENSIONS.length).toFixed(4));
+      scores.overall = round4(sum / OVERLAP_DIMENSIONS.length);
       return [candidate, scores] as const;
     }),
   );

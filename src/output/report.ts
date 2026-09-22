@@ -1,4 +1,5 @@
 import type { FindResult, Hit } from "../find/result.ts";
+import { declarationLines } from "../util.ts";
 
 /** A readable report for a person at a terminal. */
 export function renderReport(result: FindResult): string {
@@ -58,10 +59,7 @@ function renderHit(hit: Hit): string[] {
   }
   if (hit.declaration) {
     lines.push("      declare with:");
-    lines.push("        packs:");
-    Object.entries(hit.declaration).forEach(([key, value], index) => {
-      lines.push(`          ${index === 0 ? "- " : "  "}${key}: ${value}`);
-    });
+    lines.push("        packs:", ...declarationLines(hit.declaration, "          "));
   }
   if (hit.matched_fields.length) lines.push(`      matched: ${hit.matched_fields.join(", ")}`);
   return lines;

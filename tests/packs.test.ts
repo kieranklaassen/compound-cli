@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { loadCeConfig } from "../src/config/ce-config.ts";
 import { cacheKey, createGitCache } from "../src/corpus/git-cache.ts";
 import { loadPackRules, publicResolution, resolvePacks } from "../src/corpus/packs.ts";
+import { tempRepo } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 
 const FIXTURES = resolve(import.meta.dir, "fixtures");
@@ -13,15 +14,6 @@ const CORPUS = join(FIXTURES, "corpus");
 
 const RULE = (title: string) =>
   `---\ntitle: "${title}"\napplies_when:\n  - "Always"\n---\n\n# ${title}\n`;
-
-function tempRepo(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "compound-cli-packs-"));
-  for (const [path, content] of Object.entries(files)) {
-    mkdirSync(join(root, path, ".."), { recursive: true });
-    writeFileSync(join(root, path), content);
-  }
-  return root;
-}
 
 function resolveIn(root: string, env: Record<string, string> = {}) {
   const cacheRoot = mkdtempSync(join(tmpdir(), "compound-cli-cache-"));

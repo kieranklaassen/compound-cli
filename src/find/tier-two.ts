@@ -13,13 +13,12 @@ export async function judgeTierTwo(
   judge: Judge,
   work: JudgeWork,
   candidates: Candidate[],
-  options: { excerptChars: number; maxSections?: number },
+  options: { excerptChars: number },
 ): Promise<Map<Candidate, TierTwoAnswer>> {
   const results = await Promise.all(
     candidates.map(async (candidate) => {
       const sections = splitSections(candidate.body, candidate.bodyStartLine, candidate.title, {
         excerptChars: options.excerptChars,
-        ...(options.maxSections !== undefined ? { maxSections: options.maxSections } : {}),
       });
       const request = tierTwoRequest(work, candidate, sections);
       const answers = await judge.ask(request.state, request.questions);

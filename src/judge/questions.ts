@@ -1,5 +1,5 @@
 import { type ChoiceCriteria, choice, noul, type Questions } from "@typesafe-ai/sdk";
-import type { Candidate } from "../corpus/candidate.ts";
+import { type Candidate, type CandidateKind, stringField } from "../corpus/candidate.ts";
 import type { Section } from "../find/sections.ts";
 
 /**
@@ -32,24 +32,25 @@ const ADOPT_CRITERIA = {
   no: "The pack is about a different domain, person, or kind of decision than this work involves.",
 };
 
+const KIND_LABELS: Record<CandidateKind, string> = {
+  solution: "learning",
+  pack_rule: "pack rule",
+  pack_candidate: "pack",
+};
+
 export function frontmatterView(candidate: Candidate): Record<string, unknown> {
   const fm = candidate.frontmatter;
   const view: Record<string, unknown> = {
     path: candidate.path,
-    kind:
-      candidate.kind === "solution"
-        ? "learning"
-        : candidate.kind === "pack_rule"
-          ? "pack rule"
-          : "pack",
+    kind: KIND_LABELS[candidate.kind],
     title: candidate.title,
   };
   if (candidate.packId) view.pack = candidate.packId;
   if (candidate.appliesWhen.length) view.applies_when = candidate.appliesWhen;
   if (candidate.tags.length) view.tags = candidate.tags;
   for (const key of ["module", "problem_type", "component", "record_type"] as const) {
-    const value = fm[key];
-    if (typeof value === "string" && value.trim()) view[key] = value.trim();
+    const value = stringField(fm[key]);
+    if (value !== undefined) view[key] = value;
   }
   const symptoms = fm.symptoms;
   if (Array.isArray(symptoms) && symptoms.length)

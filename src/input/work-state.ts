@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { Context } from "../context.ts";
 import { UsageError } from "../errors.ts";
+import { errorMessage } from "../util.ts";
 import { type DiffSummary, parseUnifiedDiff } from "./diff.ts";
 import { type DocSummary, readDoc } from "./doc.ts";
 import { extractKeywords } from "./keywords.ts";
@@ -94,8 +95,7 @@ function readOrUsage<T>(path: string, read: (path: string) => T): T {
   try {
     return read(path);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new UsageError(`cannot read ${basename(path)}: ${message}`);
+    throw new UsageError(`cannot read ${basename(path)}: ${errorMessage(error)}`);
   }
 }
 

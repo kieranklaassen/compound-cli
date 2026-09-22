@@ -1,3 +1,5 @@
+import { text } from "node:stream/consumers";
+
 export type Env = Record<string, string | undefined>;
 
 export type Context = {
@@ -15,13 +17,7 @@ export function processContext(): Context {
     env: process.env,
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
-    readStdin: async () => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of process.stdin) {
-        chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
-      }
-      return Buffer.concat(chunks).toString("utf8");
-    },
+    readStdin: () => text(process.stdin),
     isTTY: Boolean(process.stdout.isTTY),
   };
 }

@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
 import { stringField } from "../corpus/candidate.ts";
-import { firstHeading, isFrontmatterError, parseFrontmatter } from "../corpus/frontmatter.ts";
+import { documentTitle, parseFrontmatterLenient } from "../corpus/frontmatter.ts";
 
 export type PlanSummary = {
   path: string;
@@ -18,13 +17,10 @@ const MAX_DECISIONS = 20;
 
 /** A bounded reading of a unified plan or brainstorm: title, summary, R-IDs, and decision labels. */
 export function readPlan(path: string): PlanSummary {
-  const parsed = parseFrontmatter(readFileSync(path, "utf8"));
-  const data = isFrontmatterError(parsed) ? {} : parsed.data;
-  const body = isFrontmatterError(parsed) ? readFileSync(path, "utf8") : parsed.body;
-  const title = stringField(data.title) ?? firstHeading(body) ?? basename(path, ".md");
+  const { data, body } = parseFrontmatterLenient(readFileSync(path, "utf8"));
   return {
     path,
-    title: title.replace(/\s+-\s+Plan$/, ""),
+    title: documentTitle(data, body, path).replace(/\s+-\s+Plan$/, ""),
     topic: stringField(data.topic) ?? null,
     summary:
       sectionText(body, /^#{2,3}\s+Summary\b/m) ??

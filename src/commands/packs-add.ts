@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { HELP_OPTION, type OptionSpecs, parseCommandArgs, ROOT_OPTION } from "../args.ts";
 import { CONFIG_DIR, loadCeConfig } from "../config/ce-config.ts";
@@ -86,8 +86,7 @@ function yamlScalar(value: string): string {
 export function appendPackEntry(configPath: string, entry: string): boolean {
   const existing = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
   if (existing.includes(entry.trim())) return false;
-  const lines = existing.split(/\r?\n/);
-  if (existing === "") lines.length = 0;
+  const lines = existing === "" ? [] : existing.split(/\r?\n/);
   const packsIndex = lines.findIndex((line) => /^packs:\s*(#.*)?$/.test(line));
   let output: string[];
   if (packsIndex === -1) {
@@ -109,16 +108,16 @@ export function appendPackEntry(configPath: string, entry: string): boolean {
       if (isItem && itemIndent === undefined) itemIndent = line.match(/^\s*/)?.[0] ?? "";
       end++;
     }
-    // Back up over trailing blank or comment lines so the entry sits with its siblings.
+    // Back up over trailing blank lines so the entry sits with its siblings.
     while (end > packsIndex + 1 && (lines[end - 1] ?? "").trim() === "") end--;
     const rendered = itemIndent === undefined ? entry : entry.replace(/^ {2}/gm, itemIndent);
     output = [...lines.slice(0, end), ...rendered.split("\n"), ...lines.slice(end)];
   }
-  mkdirSync(join(configPath, ".."), { recursive: true });
+  mkdirSync(dirname(configPath), { recursive: true });
   const text = output.join("\n");
   writeFileSync(configPath, text.endsWith("\n") ? text : `${text}\n`);
   // Confirm the result still parses as a packs list.
-  loadCeConfig(join(configPath, "..", ".."));
+  loadCeConfig(dirname(dirname(configPath)));
   return true;
 }
 

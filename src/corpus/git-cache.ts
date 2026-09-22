@@ -22,7 +22,6 @@ import type { Env } from "../context.ts";
  */
 export type GitCache = {
   base: string | undefined;
-  timeoutMs: number;
   which: () => boolean;
   cachedDir: (url: string, ref: string) => string | undefined;
   clone: (url: string, ref: string, label: string, warnings: string[]) => string | undefined;
@@ -33,10 +32,15 @@ export type GitCache = {
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
 
-export function createGitCache(env: Env, options: { timeoutSeconds?: number } = {}): GitCache {
+/** `CE_PACKS_GIT_TIMEOUT` wins; otherwise the caller's default, otherwise 60 seconds. */
+export function createGitCache(
+  env: Env,
+  options: { defaultTimeoutSeconds?: number } = {},
+): GitCache {
   const timeoutSeconds =
-    options.timeoutSeconds ?? (Number(env.CE_PACKS_GIT_TIMEOUT) || DEFAULT_TIMEOUT_SECONDS);
+    Number(env.CE_PACKS_GIT_TIMEOUT) || options.defaultTimeoutSeconds || DEFAULT_TIMEOUT_SECONDS;
   const timeoutMs = timeoutSeconds * 1000;
+  let hasGit: boolean | undefined;
   const base = cacheBase(env);
   const gitEnv = nonInteractiveGitEnv(env);
   const git = (args: string[], cwd?: string) =>
@@ -50,8 +54,10 @@ export function createGitCache(env: Env, options: { timeoutSeconds?: number } = 
 
   const cache: GitCache = {
     base,
-    timeoutMs,
-    which: () => spawnSync("git", ["--version"], { stdio: "ignore" }).status === 0,
+    which() {
+      hasGit ??= spawnSync("git", ["--version"], { stdio: "ignore" }).status === 0;
+      return hasGit;
+    },
     cachedDir(url, ref) {
       if (base === undefined) return undefined;
       const dest = join(base, cacheKey(url, ref));

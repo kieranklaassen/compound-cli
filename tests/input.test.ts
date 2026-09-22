@@ -1,36 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { join, resolve } from "node:path";
-import type { Context } from "../src/context.ts";
 import { UsageError } from "../src/errors.ts";
 import { parseUnifiedDiff } from "../src/input/diff.ts";
 import { extractKeywords, keywordOverlap } from "../src/input/keywords.ts";
 import { readPlan } from "../src/input/plan.ts";
-import { buildWorkState, type ChannelInput, judgeState } from "../src/input/work-state.ts";
+import { buildWorkState, judgeState } from "../src/input/work-state.ts";
+import { NO_CHANNELS as EMPTY, fakeContext } from "./helpers/fixtures.ts";
 
 const INPUT = resolve(import.meta.dir, "fixtures/input");
 
-const EMPTY: ChannelInput = {
-  activity: undefined,
-  concepts: [],
-  decisions: [],
-  domains: [],
-  modules: [],
-  paths: [],
-  diffPath: undefined,
-  planPath: undefined,
-  docPath: undefined,
-};
-
-function ctx(stdin = ""): Context {
-  return {
-    cwd: process.cwd(),
-    env: {},
-    stdout: () => {},
-    stderr: () => {},
-    readStdin: async () => stdin,
-    isTTY: false,
-  };
-}
+const ctx = (stdin = "") => fakeContext({}, stdin);
 
 describe("buildWorkState", () => {
   test("activity only yields the activity and keywords from it", async () => {

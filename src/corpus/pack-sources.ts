@@ -1,12 +1,12 @@
-import { existsSync, realpathSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { CeConfig } from "../config/ce-config.ts";
 import type { Env } from "../context.ts";
-import type { Candidate } from "./candidate.ts";
+import { homeDir } from "../util.ts";
+import type { Candidate, CandidateLoad } from "./candidate.ts";
 import { createGitCache, type GitCache, isGitUrl } from "./git-cache.ts";
 import { readCandidate } from "./learnings.ts";
-import { enumeratePacks, expandHome, isKnowledgeFile } from "./packs.ts";
+import { enumeratePacks, expandHome, isKnowledgeText } from "./packs.ts";
 
 export type KnownSource = {
   label: string;
@@ -19,18 +19,15 @@ export type KnownSource = {
 
 export type FetchPolicy = "cached-or-clone" | "cached-only" | "refresh";
 
-export type PackCandidateLoad = { candidates: Candidate[]; warnings: string[] };
-
 export const HOME_SOURCE = "~/compound-packs/packs";
 export const EVERY_SOURCE = "https://github.com/EveryInc/compound-packs.git";
 /** A skill call must stay fast: an uncached known source gets this long to clone. */
 const KNOWN_SOURCE_TIMEOUT_SECONDS = 30;
 
 /** Built-in sources plus `pack_sources:` from both config layers, in that order (plan R23). */
-export function knownSources(config: CeConfig, env: Env = process.env): KnownSource[] {
+export function knownSources(config: CeConfig, env: Env): KnownSource[] {
   const sources: KnownSource[] = [];
-  const home = join(env.HOME ?? homedir(), "compound-packs", "packs");
-  if (existsSync(home) && statSync(home).isDirectory()) {
+  if (isDirectory(join(homeDir(env), "compound-packs", "packs"))) {
     sources.push({ label: "built-in", kind: "local", source: HOME_SOURCE });
   }
   sources.push({
@@ -57,6 +54,13 @@ export function knownSources(config: CeConfig, env: Env = process.env): KnownSou
   return sources;
 }
 
+/** The directory a local known source names, `~` and repo-relative paths resolved; undefined when absent. */
+export function localSourceDir(source: string, repoRoot: string, home: string): string | undefined {
+  const expanded = expandHome(source, home);
+  const dir = isAbsolute(expanded) ? expanded : resolve(repoRoot, expanded);
+  return isDirectory(dir) ? realpathSync(dir) : undefined;
+}
+
 /**
  * Pack candidates: every pack a known source publishes that the repo has not
  * declared, judged later from its README title and applies_when. Each carries
@@ -67,31 +71,34 @@ export function loadPackCandidates(
   declaredIds: ReadonlySet<string>,
   env: Env,
   policy: FetchPolicy = "cached-or-clone",
-  git: GitCache = createGitCache(env, {
-    timeoutSeconds: Number(env.CE_PACKS_GIT_TIMEOUT) || KNOWN_SOURCE_TIMEOUT_SECONDS,
-  }),
-): PackCandidateLoad {
+): CandidateLoad {
+  const git = createGitCache(env, { defaultTimeoutSeconds: KNOWN_SOURCE_TIMEOUT_SECONDS });
+  const home = homeDir(env);
   const candidates: Candidate[] = [];
   const warnings: string[] = [];
   const seen = new Set<string>();
   for (const source of knownSources(config, env)) {
-    const label = `${source.label} source ${source.source}`;
-    const located = locate(
-      source,
-      config.repoRoot,
-      env.HOME ?? homedir(),
-      git,
-      policy,
-      label,
-      warnings,
-    );
+    const located = locate(source, config.repoRoot, home, git, policy, warnings);
     if (!located) continue;
     const { dir, boundary } = located;
     for (const [id, packDir] of enumeratePacks(dir, boundary, [])) {
       if (declaredIds.has(id) || seen.has(id)) continue;
       const readme = join(packDir, "README.md");
-      if (!existsSync(readme) || !isKnowledgeFile(readme)) continue;
-      const candidate = readCandidate(readme, `${id}/README.md`, "pack_candidate", id, "README.md");
+      let raw: string;
+      try {
+        raw = readFileSync(readme, "utf8");
+      } catch {
+        continue;
+      }
+      if (!isKnowledgeText(raw)) continue;
+      const candidate = readCandidate(
+        readme,
+        `${id}/README.md`,
+        "pack_candidate",
+        id,
+        "README.md",
+        raw,
+      );
       if ("error" in candidate) {
         warnings.push(`skipped ${id}/README.md from ${source.source}: ${candidate.error}`);
         continue;
@@ -110,18 +117,16 @@ function locate(
   home: string,
   git: GitCache,
   policy: FetchPolicy,
-  label: string,
   warnings: string[],
 ): { dir: string; boundary: string } | undefined {
+  const label = `${source.label} source ${source.source}`;
   if (source.kind === "local") {
-    const expanded = expandHome(source.source, home);
-    const dir = isAbsolute(expanded) ? expanded : resolve(repoRoot, expanded);
-    if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    const dir = localSourceDir(source.source, repoRoot, home);
+    if (!dir) {
       warnings.push(`${label}: directory does not exist; skipped`);
       return undefined;
     }
-    const real = realpathSync(dir);
-    return { dir: real, boundary: real };
+    return { dir, boundary: dir };
   }
   const ref = source.ref ?? "main";
   if (policy === "refresh") git.evict(source.source, ref);
@@ -147,4 +152,12 @@ export function declarationFor(source: KnownSource, id: string): Record<string, 
   if (source.path) declaration.path = source.path;
   declaration.pack = id;
   return declaration;
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }

@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { parse } from "yaml";
 
 /** Frontmatter must close within this many characters (packs-resolve.py's cap). */
@@ -58,4 +59,19 @@ export function isFrontmatterError(
 export function firstHeading(body: string): string | undefined {
   const match = body.match(/^#\s+(.+?)\s*$/m);
   return match?.[1]?.trim() || undefined;
+}
+
+/** Parse leniently: a document whose frontmatter fails to parse is all body with no data. */
+export function parseFrontmatterLenient(raw: string): ParsedDocument {
+  const parsed = parseFrontmatter(raw);
+  if (isFrontmatterError(parsed))
+    return { data: {}, body: raw, bodyStartLine: 1, hasFrontmatter: false };
+  return parsed;
+}
+
+/** Frontmatter `title`, else the first H1, else the file name. */
+export function documentTitle(data: Record<string, unknown>, body: string, path: string): string {
+  const title = data.title;
+  if (typeof title === "string" && title.trim()) return title.trim();
+  return firstHeading(body) ?? basename(path, ".md");
 }

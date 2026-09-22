@@ -47,7 +47,7 @@ const NOT_SYMBOLS = new Set([
 
 /** A bounded reading of a unified diff: paths, symbol-like names, hunk contexts, and an excerpt. */
 export function parseUnifiedDiff(text: string): DiffSummary {
-  const files: string[] = [];
+  const files = new Set<string>();
   const symbols = new Set<string>();
   const hunks: string[] = [];
   const excerpt: string[] = [];
@@ -56,12 +56,12 @@ export function parseUnifiedDiff(text: string): DiffSummary {
   for (const line of text.split(/\r?\n/)) {
     const gitHeader = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
     if (gitHeader) {
-      pushUnique(files, gitHeader[2] ?? gitHeader[1] ?? "");
+      addPath(files, gitHeader[2] ?? gitHeader[1]);
       continue;
     }
     const plusHeader = line.match(/^\+\+\+ (?:b\/)?(.+)$/);
     if (plusHeader && plusHeader[1] !== "/dev/null") {
-      pushUnique(files, plusHeader[1] ?? "");
+      addPath(files, plusHeader[1]);
       continue;
     }
     if (line.startsWith("--- ")) continue;
@@ -82,7 +82,7 @@ export function parseUnifiedDiff(text: string): DiffSummary {
     }
   }
   return {
-    files,
+    files: [...files],
     symbols: [...symbols].slice(0, 60),
     hunks: hunks.slice(0, 40),
     added_lines: added,
@@ -91,6 +91,6 @@ export function parseUnifiedDiff(text: string): DiffSummary {
   };
 }
 
-function pushUnique(list: string[], value: string): void {
-  if (value && !list.includes(value)) list.push(value);
+function addPath(files: Set<string>, value: string | undefined): void {
+  if (value) files.add(value);
 }

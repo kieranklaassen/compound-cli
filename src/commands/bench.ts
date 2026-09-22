@@ -5,7 +5,6 @@ import {
   type OptionSpecs,
   parseCommandArgs,
   ROOT_OPTION,
-  requireInteger,
   requireProbability,
 } from "../args.ts";
 import { type BenchCase, type CasesFile, readCasesFile } from "../bench/cases.ts";
@@ -20,16 +19,16 @@ import {
 import type { CeConfig } from "../config/ce-config.ts";
 import type { Context } from "../context.ts";
 import { createGitCache } from "../corpus/git-cache.ts";
-import type { Workspace } from "../corpus/load.ts";
+import { loadCorpus, type Workspace } from "../corpus/load.ts";
 import { JudgeError, UsageError } from "../errors.ts";
 import { EXIT } from "../exit-codes.ts";
-import { DEFAULTS } from "../find/defaults.ts";
 import { NO_FILTERS } from "../find/filters.ts";
-import { type JudgeSettings, runFind } from "../find/find.ts";
+import { runFind } from "../find/find.ts";
 import { BENCH_HELP } from "../help.ts";
 import { buildWorkState } from "../input/work-state.ts";
 import { cassetteMode } from "../judge/api-key.ts";
 import { judgeFromEnv } from "../judge/client.ts";
+import { resolveJudgeSettings } from "./find-options.ts";
 
 const BENCH_OPTIONS = {
   ...HELP_OPTION,
@@ -62,20 +61,7 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   if (!v.cases) throw new UsageError("bench requires --cases <file>");
   const casesPath = resolve(ctx.cwd, v.cases);
   const file = readCasesFile(casesPath);
-  const settings: JudgeSettings = {
-    threshold: requireProbability("threshold", v.threshold, DEFAULTS.threshold),
-    tierOneThreshold: requireProbability(
-      "tier-one-threshold",
-      v["tier-one-threshold"],
-      DEFAULTS.tierOneThreshold,
-    ),
-    frontmatterOnly: Boolean(v["frontmatter-only"]),
-    batch: requireInteger("batch", v.batch, DEFAULTS.batch),
-    parallel: requireInteger("parallel", v.parallel, DEFAULTS.parallel),
-    candidateCap: DEFAULTS.candidateCap,
-    excerptChars: requireInteger("excerpt-chars", v["excerpt-chars"], DEFAULTS.excerptChars),
-    model: v.model ?? DEFAULTS.model,
-  };
+  const settings = resolveJudgeSettings(v);
   const sweep = (v.sweep ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -88,9 +74,9 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   const cases = only.size ? file.cases.filter((c) => only.has(c.id)) : file.cases;
   if (cases.length === 0) throw new UsageError("no cases selected");
 
+  const corpus = loadCorpus(workspace);
   const runs: CaseRun[] = [];
-  const warnings: string[] = [];
-  let corpusCounts = { solutions: 0, pack_rules: 0 };
+  const warnings = new Set<string>(corpus.warnings);
   for (const benchCase of cases) {
     const before = judge.usage.snapshot();
     const started = performance.now();
@@ -101,24 +87,20 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
       settings,
       filters: NO_FILTERS,
       mode: "find",
+      corpus,
     });
     const after = judge.usage.snapshot();
-    corpusCounts = {
-      solutions: run.result.corpus.solutions,
-      pack_rules: run.result.corpus.pack_rules,
-    };
-    for (const warning of run.result.warnings)
-      if (!warnings.includes(warning)) warnings.push(warning);
-    runs.push({
+    for (const warning of run.result.warnings) warnings.add(warning);
+    const caseRun: CaseRun = {
       benchCase,
       run,
       wall_ms: Math.round(performance.now() - started),
       requests: after.requests - before.requests,
       input_tokens: after.input_tokens - before.input_tokens,
       estimated_usd: Number((after.estimated_usd - before.estimated_usd).toFixed(8)),
-    });
-    if (!v.json)
-      ctx.stderr(`${progressLine(runs[runs.length - 1] as CaseRun, settings.threshold)}\n`);
+    };
+    runs.push(caseRun);
+    if (!v.json) ctx.stderr(`${progressLine(caseRun, settings.threshold)}\n`);
   }
 
   const scores = runs.map((r) => scoreCase(r, settings.threshold));
@@ -142,10 +124,14 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
       requests: usage.requests,
       input_tokens: usage.input_tokens,
     },
-    corpus: { root: workspace.repoRoot, ...corpusCounts },
+    corpus: {
+      root: workspace.repoRoot,
+      solutions: corpus.learnings.candidates.length,
+      pack_rules: corpus.packRules.candidates.length,
+    },
     model: usage.model,
     cassette_mode: cassetteMode(ctx.env),
-    warnings,
+    warnings: [...warnings],
   };
 
   if (v.out) {
@@ -177,7 +163,7 @@ function benchWorkspace(
   rootOverride: string | undefined,
 ): Workspace {
   const git = createGitCache(ctx.env, {
-    timeoutSeconds: Number(ctx.env.CE_PACKS_GIT_TIMEOUT) || CORPUS_CLONE_TIMEOUT_SECONDS,
+    defaultTimeoutSeconds: CORPUS_CLONE_TIMEOUT_SECONDS,
   });
   let repoRoot: string;
   if (rootOverride !== undefined) {

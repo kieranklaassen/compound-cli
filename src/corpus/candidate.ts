@@ -23,6 +23,8 @@ export type Candidate = {
   declaration: Record<string, string> | undefined;
 };
 
+export type CandidateLoad = { candidates: Candidate[]; warnings: string[] };
+
 export function hasAppliesWhen(candidate: Candidate): boolean {
   return candidate.appliesWhen.length > 0;
 }

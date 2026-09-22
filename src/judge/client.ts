@@ -12,6 +12,7 @@ import {
 import type { Env } from "../context.ts";
 import { JudgeError } from "../errors.ts";
 import { DEFAULTS } from "../find/defaults.ts";
+import { errorMessage } from "../util.ts";
 import { CASSETTE_DIR_VARIABLE, cassetteMode, requireApiKey } from "./api-key.ts";
 import { planBatches } from "./batching.ts";
 import { CASSETTE_MISS_MARKER, cassetteFetch } from "./cassette.ts";
@@ -145,8 +146,7 @@ function toJudgeError(error: unknown): JudgeError {
       cause: error,
     });
   }
-  const message = error instanceof Error ? error.message : String(error);
-  return new JudgeError(message.slice(0, 300), { cause: error });
+  return new JudgeError(errorMessage(error).slice(0, 300), { cause: error });
 }
 
 export function noulOf(answers: Answers, key: string): number {

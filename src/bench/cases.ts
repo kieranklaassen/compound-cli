@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { UsageError } from "../errors.ts";
+import { errorMessage } from "../util.ts";
 
 export type BenchQuery = {
   activity?: string;
@@ -38,9 +39,7 @@ export function readCasesFile(path: string): CasesFile {
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    throw new UsageError(
-      `cannot read cases file ${path}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new UsageError(`cannot read cases file ${path}: ${errorMessage(error)}`);
   }
   if (!raw || typeof raw !== "object")
     throw new UsageError(`${path}: cases file must be a JSON object`);

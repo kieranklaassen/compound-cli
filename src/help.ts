@@ -1,6 +1,7 @@
+import pkg from "../package.json" with { type: "json" };
 import { EXIT_CODE_DOCS } from "./exit-codes.ts";
 
-export const VERSION = "0.1.0";
+export const VERSION: string = pkg.version;
 
 const EXIT_LINES = EXIT_CODE_DOCS.map(
   (entry) => `  ${entry.code}  ${entry.name.padEnd(16)}${entry.meaning}`,

@@ -1,43 +1,26 @@
-import {
-  HELP_OPTION,
-  type OptionSpecs,
-  parseCommandArgs,
-  ROOT_OPTION,
-  requireInteger,
-  requireProbability,
-} from "../args.ts";
+import { HELP_OPTION, type OptionSpecs, parseCommandArgs, ROOT_OPTION } from "../args.ts";
 import type { Context } from "../context.ts";
 import type { Candidate } from "../corpus/candidate.ts";
 import { openWorkspace } from "../corpus/load.ts";
 import { type FetchPolicy, loadPackCandidates } from "../corpus/pack-sources.ts";
 import { resolvePacks } from "../corpus/packs.ts";
 import { EXIT } from "../exit-codes.ts";
-import { DEFAULTS } from "../find/defaults.ts";
 import { SCHEMA_VERSION } from "../find/result.ts";
 import { judgePackCandidates } from "../find/tier-one.ts";
 import { PACKS_HELP } from "../help.ts";
 import { repoProfile } from "../input/repo-profile.ts";
-import {
-  buildWorkState,
-  type ChannelInput,
-  hasAnyChannel,
-  judgeState,
-} from "../input/work-state.ts";
+import { buildWorkState, hasAnyChannel, judgeState } from "../input/work-state.ts";
 import { judgeFromEnv } from "../judge/client.ts";
 import { publicState } from "../output/json.ts";
+import { declarationLines, round4 } from "../util.ts";
+import { CHANNEL_OPTIONS, channelInput, resolveJudgeSettings } from "./find-options.ts";
 
 export const SUGGEST_OPTIONS = {
   ...HELP_OPTION,
   ...ROOT_OPTION,
   json: { type: "boolean" },
   refresh: { type: "boolean" },
-  concept: { type: "string", multiple: true },
-  decision: { type: "string", multiple: true },
-  domain: { type: "string", multiple: true },
-  module: { type: "string", multiple: true },
-  path: { type: "string", multiple: true },
-  diff: { type: "string" },
-  plan: { type: "string" },
+  ...CHANNEL_OPTIONS,
   threshold: { type: "string" },
   batch: { type: "string" },
   parallel: { type: "string" },
@@ -59,22 +42,10 @@ export async function runSuggest(argv: string[], ctx: Context): Promise<number> 
     ctx.stdout(PACKS_HELP);
     return EXIT.OK;
   }
-  const threshold = requireProbability("threshold", v.threshold, DEFAULTS.threshold);
-  const batch = requireInteger("batch", v.batch, DEFAULTS.batch);
-  const parallel = requireInteger("parallel", v.parallel, DEFAULTS.parallel);
-  const input: ChannelInput = {
-    activity: parsed.positionals[0],
-    concepts: v.concept ?? [],
-    decisions: v.decision ?? [],
-    domains: v.domain ?? [],
-    modules: v.module ?? [],
-    paths: v.path ?? [],
-    diffPath: v.diff,
-    planPath: v.plan,
-    docPath: undefined,
-  };
+  const { threshold, batch, parallel, model } = resolveJudgeSettings(v);
+  const input = channelInput(parsed);
   const state = hasAnyChannel(input) ? await buildWorkState(input, ctx) : null;
-  const judge = judgeFromEnv(ctx.env, { model: v.model ?? DEFAULTS.model, parallel });
+  const judge = judgeFromEnv(ctx.env, { model, parallel });
   const workspace = openWorkspace(ctx.cwd, ctx.env, v.root);
   const resolution = resolvePacks(workspace.config, workspace.git);
   const declared = new Set(resolution.roots.map((r) => r.id));
@@ -121,9 +92,7 @@ export async function runSuggest(argv: string[], ctx: Context): Promise<number> 
     ctx.stdout(`${s.score.toFixed(2)}  ${s.pack_id}  ${s.title}\n`);
     for (const when of s.applies_when) ctx.stdout(`      when: ${when}\n`);
     ctx.stdout("      declare with:\n        packs:\n");
-    Object.entries(s.declaration).forEach(([key, value], index) => {
-      ctx.stdout(`          ${index === 0 ? "- " : "  "}${key}: ${value}\n`);
-    });
+    for (const line of declarationLines(s.declaration, "          ")) ctx.stdout(`${line}\n`);
     ctx.stdout(`      or run: compound packs add ${s.pack_id}\n\n`);
   }
   const u = judge.usage.snapshot();
@@ -139,7 +108,7 @@ function toSuggestion(candidate: Candidate, score: number): Suggestion {
     pack_id: candidate.packId ?? candidate.path,
     title: candidate.title,
     applies_when: candidate.appliesWhen,
-    score: Number(score.toFixed(4)),
+    score: round4(score),
     declaration: candidate.declaration ?? {},
   };
 }

@@ -45,7 +45,7 @@ export function splitSections(
   const nonEmpty = raws.filter((raw) => lines.slice(raw.start, raw.end + 1).some((l) => l.trim()));
   const kept = nonEmpty.length ? nonEmpty : raws.slice(0, 1);
 
-  let merged: Raw[] = kept.map((r) => ({ ...r }));
+  const merged: Raw[] = kept.map((r) => ({ ...r }));
   while (merged.length > Math.max(1, maxSections)) {
     let smallest = 0;
     let smallestSize = Number.POSITIVE_INFINITY;
@@ -70,7 +70,6 @@ export function splitSections(
       break;
     }
   }
-  if (merged.length > 1) merged = merged.map((raw) => ({ ...raw }));
 
   const sizes = merged.map((raw) => sizeOf(lines, raw));
   const total = sizes.reduce((a, b) => a + b, 0) || 1;

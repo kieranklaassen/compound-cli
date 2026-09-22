@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
-import { stringField, stringList } from "../corpus/candidate.ts";
-import { firstHeading, isFrontmatterError, parseFrontmatter } from "../corpus/frontmatter.ts";
+import { stringList } from "../corpus/candidate.ts";
+import { documentTitle, parseFrontmatterLenient } from "../corpus/frontmatter.ts";
 
 export type DocSummary = {
   path: string;
@@ -17,13 +16,10 @@ const EXCERPT_CHARS = 2000;
 
 /** A draft learning: frontmatter plus a bounded body excerpt (the full body is kept for overlap). */
 export function readDoc(path: string): DocSummary {
-  const raw = readFileSync(path, "utf8");
-  const parsed = parseFrontmatter(raw);
-  const data = isFrontmatterError(parsed) ? {} : parsed.data;
-  const body = isFrontmatterError(parsed) ? raw : parsed.body;
+  const { data, body } = parseFrontmatterLenient(readFileSync(path, "utf8"));
   return {
     path,
-    title: stringField(data.title) ?? firstHeading(body) ?? basename(path, ".md"),
+    title: documentTitle(data, body, path),
     frontmatter: data,
     applies_when: stringList(data.applies_when),
     tags: stringList(data.tags),

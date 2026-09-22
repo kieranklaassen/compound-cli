@@ -2,6 +2,7 @@ import { type Context, processContext } from "./context.ts";
 import { CliError } from "./errors.ts";
 import { EXIT } from "./exit-codes.ts";
 import { MAIN_HELP, VERSION } from "./help.ts";
+import { errorMessage } from "./util.ts";
 
 type CommandModule = { run: (argv: string[], ctx: Context) => Promise<number> };
 
@@ -37,8 +38,8 @@ export async function main(argv: string[], ctx: Context = processContext()): Pro
       if (debug && error.stack) ctx.stderr(`${error.stack}\n`);
       return error.exitCode;
     }
-    const message = error instanceof Error ? error.message : String(error);
-    ctx.stderr(`compound: internal error: ${message}\n`);
+    ctx.stderr(`compound: internal error: ${errorMessage(error)}
+`);
     if (debug && error instanceof Error && error.stack) ctx.stderr(`${error.stack}\n`);
     else ctx.stderr("compound: rerun with --debug for the stack trace\n");
     return EXIT.INTERNAL;

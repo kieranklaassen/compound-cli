@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join, resolve } from "node:path";
 import { loadCeConfig } from "../src/config/ce-config.ts";
-import type { Context } from "../src/context.ts";
 import { createGitCache } from "../src/corpus/git-cache.ts";
 import { loadLearnings } from "../src/corpus/learnings.ts";
 import type { Workspace } from "../src/corpus/load.ts";
@@ -13,6 +12,7 @@ import { prefilter } from "../src/find/prefilter.ts";
 import { splitSections } from "../src/find/sections.ts";
 import { buildWorkState, type ChannelInput, judgeState } from "../src/input/work-state.ts";
 import { tierOneRequest, tierTwoRequest } from "../src/judge/questions.ts";
+import { NO_CHANNELS as EMPTY, fakeContext } from "./helpers/fixtures.ts";
 import { testJudge } from "./helpers/test-judge.ts";
 
 const CORPUS = resolve(import.meta.dir, "fixtures/corpus");
@@ -29,26 +29,7 @@ const SETTINGS: JudgeSettings = {
   model: DEFAULTS.model,
 };
 
-const EMPTY: ChannelInput = {
-  activity: undefined,
-  concepts: [],
-  decisions: [],
-  domains: [],
-  modules: [],
-  paths: [],
-  diffPath: undefined,
-  planPath: undefined,
-  docPath: undefined,
-};
-
-const ctx: Context = {
-  cwd: CORPUS,
-  env: {},
-  stdout: () => {},
-  stderr: () => {},
-  readStdin: async () => "",
-  isTTY: false,
-};
+const ctx = fakeContext({ cwd: CORPUS });
 
 function workspace(root = CORPUS): Workspace {
   return { repoRoot: root, config: loadCeConfig(root), git: createGitCache({}) };
