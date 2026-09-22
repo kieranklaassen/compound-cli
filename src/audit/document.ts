@@ -106,5 +106,5 @@ export function firstHeading(body: string): string | undefined {
   const match = /^#\s+(.+?)\s*$/m.exec(prose);
   // Only paired emphasis around the whole heading is markup; backticks and
   // asterisks inside it (`m.*`) are the author's text.
-  return match?.[1]?.replace(/^(\*\*|__)(.+)\1$/, "$2").trim() || undefined;
+  return match?.[1]?.replace(/^(\*\*|__)((?:(?!\1).)+)\1$/, "$2").trim() || undefined;
 }

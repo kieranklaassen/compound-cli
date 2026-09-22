@@ -16,6 +16,7 @@ import { parseArgs } from "node:util";
 import { noul } from "@typesafe-ai/sdk";
 import { splitDocument } from "../../src/audit/document.ts";
 import type { AuditReport } from "../../src/audit/report.ts";
+import { dateText } from "../../src/audit/rules.ts";
 import { processContext } from "../../src/context.ts";
 import { judgeFromEnv, noulOf } from "../../src/judge/client.ts";
 import { Semaphore } from "../../src/judge/semaphore.ts";
@@ -47,7 +48,7 @@ type Row = {
   needs_author: string[];
 };
 
-const norm = (v: unknown) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+const norm = (v: unknown) => dateText(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : typeof v === "string" ? [v] : []);
 
 const files = report.files.filter((f) => f.fix && (f.fix.changes.length || f.fix.needs_author.length));
