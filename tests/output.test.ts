@@ -49,7 +49,13 @@ function hit(overrides: Partial<Hit>): Hit {
     pack_path: null,
     title: "A",
     frontmatter: { title: "A" },
-    passage: { heading: "Rule", start_line: 12, end_line: 20, text: "Do the thing.\nThen the other.", probability: 0.7 },
+    passage: {
+      heading: "Rule",
+      start_line: 12,
+      end_line: 20,
+      text: "Do the thing.\nThen the other.",
+      probability: 0.7,
+    },
     matched_fields: ["title"],
     declaration: null,
     overlap: null,
@@ -79,7 +85,14 @@ function result(hits: Hit[], overrides: Partial<FindResult> = {}): FindResult {
     tier_one_threshold: 0.3,
     frontmatter_only: false,
     gate: null,
-    usage: { requests: 3, input_tokens: 4500, output_tokens: 20, estimated_usd: 0.000189, wall_ms: 1234, model: "jev-1.13.0" },
+    usage: {
+      requests: 3,
+      input_tokens: 4500,
+      output_tokens: 20,
+      estimated_usd: 0.000189,
+      wall_ms: 1234,
+      model: "jev-1.13.0",
+    },
     corpus: {
       solutions: 7,
       pack_rules: 2,
@@ -87,7 +100,14 @@ function result(hits: Hit[], overrides: Partial<FindResult> = {}): FindResult {
       judged: 9,
       tier_two_judged: 2,
       prefilter_dropped: 0,
-      filtered_out: { by_kind: 0, by_problem_type: 0, by_module: 0, by_tag: 0, by_pack: 0, total: 0 },
+      filtered_out: {
+        by_kind: 0,
+        by_problem_type: 0,
+        by_module: 0,
+        by_tag: 0,
+        by_pack: 0,
+        total: 0,
+      },
     },
     warnings: [],
     ...overrides,
@@ -96,7 +116,20 @@ function result(hits: Hit[], overrides: Partial<FindResult> = {}): FindResult {
 
 describe("renderJson", () => {
   test("carries every documented top-level and hit field", () => {
-    const json = JSON.parse(renderJson(result([hit({}), hit({ path: "local-rules/r.md", kind: "pack_rule", pack_id: "local-rules", pack_path: "r.md", score: 0.6 })])));
+    const json = JSON.parse(
+      renderJson(
+        result([
+          hit({}),
+          hit({
+            path: "local-rules/r.md",
+            kind: "pack_rule",
+            pack_id: "local-rules",
+            pack_path: "r.md",
+            score: 0.6,
+          }),
+        ]),
+      ),
+    );
     expect(Object.keys(json).sort()).toEqual(EXPECTED_TOP_LEVEL);
     expect(Object.keys(json.hits[0]).sort()).toEqual(EXPECTED_HIT_KEYS);
     expect(json.schema_version).toBe(1);
@@ -112,7 +145,9 @@ describe("renderJson", () => {
 
 describe("renderCompact", () => {
   test("one row per hit in descending score, then a # trailer", () => {
-    const text = renderCompact(result([hit({ score: 0.91 }), hit({ path: "b.md", score: 0.55, passage: null })]));
+    const text = renderCompact(
+      result([hit({ score: 0.91 }), hit({ path: "b.md", score: 0.55, passage: null })]),
+    );
     const lines = text.trimEnd().split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe("docs/solutions/a.md\t0.91\tsolution\t-\t12-20");
@@ -122,7 +157,9 @@ describe("renderCompact", () => {
   });
 
   test("a gate result adds gate= to the trailer", () => {
-    const text = renderCompact(result([], { mode: "gate", gate: { probability: 0.12, threshold: 0.5, hits: 0 } }));
+    const text = renderCompact(
+      result([], { mode: "gate", gate: { probability: 0.12, threshold: 0.5, hits: 0 } }),
+    );
     expect(text).toContain("gate=0.12");
   });
 });
@@ -152,7 +189,9 @@ describe("compound find end to end in replay", () => {
         "--root",
         CORPUS,
       ],
-      { env: { COMPOUND_CASSETTE_MODE: "replay", COMPOUND_CASSETTE_DIR: `${CASSETTES}/exit-codes` } },
+      {
+        env: { COMPOUND_CASSETTE_MODE: "replay", COMPOUND_CASSETTE_DIR: `${CASSETTES}/exit-codes` },
+      },
     );
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
@@ -165,7 +204,14 @@ describe("compound find end to end in replay", () => {
 
   test("--compact returns rows and a trailer; nothing relevant still exits 0", async () => {
     const run = await runCli(
-      ["find", "Rotate the TLS certificate on the load balancer before it expires", "--compact", "--no-sources", "--root", CORPUS],
+      [
+        "find",
+        "Rotate the TLS certificate on the load balancer before it expires",
+        "--compact",
+        "--no-sources",
+        "--root",
+        CORPUS,
+      ],
       { env: { COMPOUND_CASSETTE_MODE: "replay", COMPOUND_CASSETTE_DIR: `${CASSETTES}/tls` } },
     );
     expect(run.code).toBe(0);
@@ -173,9 +219,12 @@ describe("compound find end to end in replay", () => {
   });
 
   test("a cassette miss is exit 5 with a message naming the recording", async () => {
-    const run = await runCli(["find", "something never recorded", "--json", "--no-sources", "--root", CORPUS], {
-      env: { COMPOUND_CASSETTE_MODE: "replay", COMPOUND_CASSETTE_DIR: `${CASSETTES}/tls` },
-    });
+    const run = await runCli(
+      ["find", "something never recorded", "--json", "--no-sources", "--root", CORPUS],
+      {
+        env: { COMPOUND_CASSETTE_MODE: "replay", COMPOUND_CASSETTE_DIR: `${CASSETTES}/tls` },
+      },
+    );
     expect(run.code).toBe(5);
     expect(run.stderr).toContain("cassette replay miss");
   });
