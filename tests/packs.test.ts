@@ -11,7 +11,8 @@ import { runCli } from "./helpers/run-cli.ts";
 const FIXTURES = resolve(import.meta.dir, "fixtures");
 const CORPUS = join(FIXTURES, "corpus");
 
-const RULE = (title: string) => `---\ntitle: "${title}"\napplies_when:\n  - "Always"\n---\n\n# ${title}\n`;
+const RULE = (title: string) =>
+  `---\ntitle: "${title}"\napplies_when:\n  - "Always"\n---\n\n# ${title}\n`;
 
 function tempRepo(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "compound-cli-packs-"));
@@ -39,7 +40,9 @@ describe("resolvePacks with path sources", () => {
       "prefer-small-prs.md",
       "reviewer-skip-tests.md",
     ]);
-    expect(rules.candidates.every((c) => c.kind === "pack_rule" && c.packId === "local-rules")).toBe(true);
+    expect(
+      rules.candidates.every((c) => c.kind === "pack_rule" && c.packId === "local-rules"),
+    ).toBe(true);
     expect(rules.candidates[0]?.path).toMatch(/^local-rules\//);
   });
 
@@ -112,7 +115,9 @@ describe("resolvePacks with path sources", () => {
     const { resolution } = resolveIn(root);
     expect(resolution.roots).toHaveLength(1);
     expect(resolution.roots[0]?.dir).toContain(join("a", "alpha"));
-    expect(resolution.errors[0]).toMatch(/duplicate pack id `alpha`: config\.local\.yaml:\d+ ignored/);
+    expect(resolution.errors[0]).toMatch(
+      /duplicate pack id `alpha`: config\.local\.yaml:\d+ ignored/,
+    );
   });
 
   test("a pack with rules only in a subfolder publishes nothing and explains why", () => {
@@ -123,7 +128,9 @@ describe("resolvePacks with path sources", () => {
     const { resolution } = resolveIn(root);
     expect(resolution.roots).toEqual([]);
     expect(resolution.warnings[0]).toContain("publishes no packs");
-    expect(resolution.warnings[1]).toContain("pack `deep` has 1 rule-shaped file(s) under `rules/`");
+    expect(resolution.warnings[1]).toContain(
+      "pack `deep` has 1 rule-shaped file(s) under `rules/`",
+    );
   });
 
   test("a symlink pointing outside the source refuses the pack", () => {
@@ -141,7 +148,9 @@ describe("resolvePacks with path sources", () => {
   });
 
   test("a repo-relative source outside the repository is refused", () => {
-    const root = tempRepo({ ".compound-engineering/config.yaml": "packs:\n  - source: ../elsewhere\n" });
+    const root = tempRepo({
+      ".compound-engineering/config.yaml": "packs:\n  - source: ../elsewhere\n",
+    });
     mkdirSync(join(root, "..", "elsewhere"), { recursive: true });
     const { resolution } = resolveIn(root);
     expect(resolution.errors[0]).toMatch(/resolves outside the repository/);
@@ -156,7 +165,11 @@ describe("resolvePacks with a git source", () => {
     mkdirSync(join(work, "packs/gitpack"), { recursive: true });
     writeFileSync(join(work, "packs/gitpack/rule.md"), RULE("From git"));
     const git = (...args: string[]) =>
-      spawnSync("git", args, { cwd: work, stdio: "ignore", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" } });
+      spawnSync("git", args, {
+        cwd: work,
+        stdio: "ignore",
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
+      });
     git("init", "--quiet", "-b", "main");
     git("-c", "user.name=t", "-c", "user.email=t@example.com", "add", ".");
     git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "-m", "init");
@@ -171,9 +184,14 @@ describe("resolvePacks with a git source", () => {
     const { resolution, cacheRoot } = resolveIn(root);
     expect(resolution.errors).toEqual([]);
     expect(resolution.roots.map((r) => r.id)).toEqual(["gitpack"]);
-    expect(resolution.roots[0]?.dir).toBe(join(cacheRoot, cacheKey(remote, "v1"), "packs", "gitpack"));
+    expect(resolution.roots[0]?.dir).toBe(
+      join(cacheRoot, cacheKey(remote, "v1"), "packs", "gitpack"),
+    );
     expect(resolution.roots[0]?.url).toBe(remote);
-    const again = resolvePacks(loadCeConfig(root), createGitCache({ ...process.env, CE_PACKS_CACHE_ROOT: cacheRoot }));
+    const again = resolvePacks(
+      loadCeConfig(root),
+      createGitCache({ ...process.env, CE_PACKS_CACHE_ROOT: cacheRoot }),
+    );
     expect(again.warnings).toEqual([]);
     expect(again.roots[0]?.dir).toBe(resolution.roots[0]?.dir);
   });

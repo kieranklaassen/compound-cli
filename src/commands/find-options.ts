@@ -11,6 +11,7 @@ import {
 import type { CandidateKind } from "../corpus/candidate.ts";
 import { UsageError } from "../errors.ts";
 import { DEFAULTS } from "../find/defaults.ts";
+import type { ChannelInput } from "../input/work-state.ts";
 
 export const FIND_OPTIONS = {
   ...HELP_OPTION,
@@ -45,18 +46,6 @@ export const FIND_OPTIONS = {
 
 export type FindMode = "find" | "gate" | "overlap";
 export type OutputFormat = "json" | "compact" | "report";
-
-export type ChannelInput = {
-  activity: string | undefined;
-  concepts: string[];
-  decisions: string[];
-  domains: string[];
-  modules: string[];
-  paths: string[];
-  diffPath: string | undefined;
-  planPath: string | undefined;
-  docPath: string | undefined;
-};
 
 export type JudgeSettings = {
   threshold: number;
@@ -151,20 +140,3 @@ export function resolveFindOptions(parsed: Parsed<typeof FIND_OPTIONS>): FindOpt
     consultSources: !v["no-sources"],
   };
 }
-
-export function hasAnyChannel(input: ChannelInput): boolean {
-  return Boolean(
-    input.activity ||
-      input.concepts.length ||
-      input.decisions.length ||
-      input.domains.length ||
-      input.modules.length ||
-      input.paths.length ||
-      input.diffPath ||
-      input.planPath ||
-      input.docPath,
-  );
-}
-
-export const CHANNEL_HINT =
-  "give at least one input channel: an activity sentence, --concept/--decision/--domain/--module/--path, or --diff/--plan/--doc";

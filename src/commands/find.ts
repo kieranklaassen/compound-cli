@@ -2,8 +2,9 @@ import type { Context } from "../context.ts";
 import { UsageError } from "../errors.ts";
 import { EXIT } from "../exit-codes.ts";
 import { FIND_HELP } from "../help.ts";
+import { CHANNEL_HINT, hasAnyChannel } from "../input/work-state.ts";
 import { requireApiKey } from "../judge/api-key.ts";
-import { CHANNEL_HINT, hasAnyChannel, parseFindOptions } from "./find-options.ts";
+import { parseFindOptions } from "./find-options.ts";
 
 export async function run(argv: string[], ctx: Context): Promise<number> {
   const options = parseFindOptions(argv);
