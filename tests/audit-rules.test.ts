@@ -82,7 +82,10 @@ describe("splitDocument", () => {
   });
 
   test("the first H1 outside code fences becomes a title candidate", () => {
-    expect(firstHeading("```\n# not this\n```\n# **This** one\n")).toBe("This one");
+    expect(firstHeading("```\n# not this\n```\n# **This one**\n")).toBe("This one");
+    expect(firstHeading("# framer-motion: always use `m.*`, never `motion.*`\n")).toBe(
+      "framer-motion: always use `m.*`, never `motion.*`",
+    );
     expect(firstHeading("no heading")).toBeUndefined();
   });
 });
