@@ -72,7 +72,8 @@ export function cassetteFetch(
         },
       };
       mkdirSync(dir, { recursive: true });
-      writeFileAtomically(file, `${JSON.stringify(stored, null, 2)}\n`);
+      // Compact: a held-out set is thousands of these files.
+      writeFileAtomically(file, `${JSON.stringify(stored)}\n`);
     }
     return new Response(text, { status: response.status, headers: response.headers });
   };

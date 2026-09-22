@@ -35,3 +35,34 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run bench:ci
+
+  bench-heldout:
+    name: Bench replay on the private Cora held-out set
+    runs-on: ubuntu-latest
+    env:
+      CORA_READ_TOKEN: ${{ secrets.CORA_READ_TOKEN }}
+      # The cassettes under bench/fixtures/cassettes/cora-heldout were recorded against this commit.
+      CORA_COMMIT: 21c00a5db096aa559bde62017211ac7ea8d48651
+    steps:
+      - uses: actions/checkout@v4
+      - if: env.CORA_READ_TOKEN == ''
+        run: echo "CORA_READ_TOKEN is not set; the private held-out replay is skipped (forks and unconfigured checkouts)."
+      - if: env.CORA_READ_TOKEN != ''
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - if: env.CORA_READ_TOKEN != ''
+        run: bun install --frozen-lockfile
+      - if: env.CORA_READ_TOKEN != ''
+        name: Fetch Cora at the recorded commit
+        run: |
+          git init -q cora
+          git -C cora remote add origin "https://x-access-token:${CORA_READ_TOKEN}@github.com/EveryInc/cora.git"
+          git -C cora fetch -q --depth 1 origin "$CORA_COMMIT"
+          git -C cora checkout -q FETCH_HEAD
+      - if: env.CORA_READ_TOKEN != ''
+        name: Rebuild the held-out set from Cora's own plans
+        run: python3 bench/scripts/build-citation-gold.py --root cora --floor-macro 0.55
+      - if: env.CORA_READ_TOKEN != ''
+        name: Replay the held-out set and enforce its floors
+        run: COMPOUND_CASSETTE_MODE=replay COMPOUND_CASSETTE_DIR=bench/fixtures/cassettes/cora-heldout bun run src/bin.ts bench --cases cora/bench/cases/heldout.json --root cora --jobs 4 --enforce-floor
