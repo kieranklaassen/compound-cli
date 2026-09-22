@@ -20,10 +20,11 @@
   ],
   "type": "module",
   "bin": {
-    "compound-cli": "dist/cli.js",
-    "compound": "dist/cli.js"
+    "compound-cli": "bin/compound.js",
+    "compound": "bin/compound.js"
   },
   "files": [
+    "bin",
     "dist",
     "bench/cases",
     "README.md",
@@ -42,6 +43,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "bench:ci": "COMPOUND_CASSETTE_MODE=replay COMPOUND_CASSETTE_DIR=bench/fixtures/cassettes/ce-plugin bun run src/bin.ts bench --cases bench/cases/ce-plugin.json --enforce-floor",
+    "bench:heldout": "COMPOUND_CASSETTE_MODE=replay COMPOUND_CASSETTE_DIR=bench/fixtures/cassettes/cora-heldout bun run src/bin.ts bench --cases ${CORA_ROOT:?set CORA_ROOT to a Cora checkout}/bench/cases/heldout.json --root $CORA_ROOT --jobs 4 --enforce-floor",
     "bench:record": "COMPOUND_CASSETTE_MODE=record COMPOUND_CASSETTE_DIR=bench/fixtures/cassettes/ce-plugin bun run src/bin.ts bench --cases bench/cases/ce-plugin.json",
     "prepublishOnly": "bun run build"
   },

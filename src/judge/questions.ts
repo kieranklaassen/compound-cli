@@ -1,4 +1,4 @@
-import { type ChoiceCriteria, choice, noul, type Questions } from "@typesafe-ai/sdk";
+import { type ChoiceCriteria, choice, noul, type Questions, score } from "@typesafe-ai/sdk";
 import { type Candidate, type CandidateKind, stringField } from "../corpus/candidate.ts";
 import type { Section } from "../find/sections.ts";
 
@@ -22,7 +22,7 @@ export function sectionTag(index: number): string {
 }
 
 const TIER_ONE_TASK =
-  "Decide which recorded learnings and pack rules apply to the work described in `work`. Each candidate is judged from its frontmatter only: its title, the applies_when situations its author wrote, tags, module, problem type, component, and symptoms.";
+  "Decide which recorded learnings and pack rules apply to the work described in `work`. Each candidate is judged from its frontmatter and its outline: its title, the applies_when situations its author wrote, tags, module, problem type, component, symptoms, and section headings.";
 
 const APPLIES_CRITERIA = {
   yes: "The candidate's situation, problem, rule, or decision is one this work is in or will meet, so the person doing the work should read it before proceeding.",
@@ -70,6 +70,18 @@ function boundedList(items: string[]): string[] {
     .map((item) => item.slice(0, VIEW_LIMITS.listItemChars));
 }
 
+/** The document's section headings, bounded: an outline of what the body covers. */
+export function bodyHeadings(body: string, limit = 8): string[] {
+  const out: string[] = [];
+  const prose = body.replace(/```[\s\S]*?```/g, "");
+  for (const match of prose.matchAll(/^#{2,3}[ \t]+(.+?)[ \t]*$/gm)) {
+    const heading = (match[1] ?? "").replace(/[*_`]/g, "").trim();
+    if (heading && !out.includes(heading)) out.push(heading.slice(0, 80));
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function tierOneRequest(
   work: JudgeWork,
   batch: Candidate[],
@@ -80,14 +92,17 @@ export function tierOneRequest(
   batch.forEach((candidate, index) => {
     const tag = candidateTag(index);
     tags.set(tag, candidate);
-    candidates[tag] = frontmatterView(candidate);
+    const headings = bodyHeadings(candidate.body);
+    candidates[tag] = headings.length
+      ? { ...frontmatterView(candidate), headings }
+      : frontmatterView(candidate);
     questions[tag] =
       candidate.kind === "pack_candidate"
         ? noul(
             `Should the pack tagged ${tag} be adopted for the work in \`work\`? Judge it from \`candidates.${tag}\`: its \`applies_when\` lists the situations that call for the pack; apply \`criteria.adopt\`.`,
           )
         : noul(
-            `Does the item tagged ${tag} apply to the work in \`work\`? Judge it from \`candidates.${tag}\`: its \`applies_when\`, title, tags, module, and problem type; apply \`criteria.applies\`.`,
+            `Does the item tagged ${tag} apply to the work in \`work\`? Judge it from \`candidates.${tag}\`: its \`applies_when\`, title, headings, tags, module, and problem type; apply \`criteria.applies\`.`,
           );
   });
   return {
@@ -123,13 +138,14 @@ export function tierTwoRequest(
       `the section tagged ${tag} (its heading and text are under \`document.sections.${tag}\`)`;
   });
   const questions: Questions = {
-    relevant: noul(
-      "Does the document in `document` apply to the work in `work`? Read its sections under `document.sections`.",
-      {
-        true: "The document's problem, rule, or decision bears on this work: knowing it would change what the person does or checks.",
-        false:
-          "The document concerns a different situation, or shares only vocabulary with the work; knowing it would not change the work.",
-      },
+    relevant: score(
+      "How directly does the document in `document` apply to the work in `work`? Read its sections under `document.sections`.",
+      [
+        "Unrelated: a different situation, component, and kind of problem; at most shared vocabulary.",
+        "Same area only: the same codebase area or technology, but its problem, rule, or decision does not come up in this work.",
+        "Relevant background: its problem, rule, or decision could come up in this work; worth knowing but would not on its own change what the person does.",
+        "Directly applies: this work is in, or will meet, the situation the document records; knowing it changes what the person does or checks.",
+      ],
     ),
   };
   if (sections.length >= 2) {

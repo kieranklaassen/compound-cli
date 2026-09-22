@@ -143,6 +143,7 @@ export function judgeState(state: WorkState): Record<string, unknown> {
       summary: state.plan.summary,
       requirements: state.plan.requirements,
       decisions: state.plan.decisions,
+      text: state.plan.text,
     };
   }
   if (state.doc) {

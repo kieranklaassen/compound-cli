@@ -11,7 +11,9 @@ import { type JudgeSettings, runFind } from "../src/find/find.ts";
 import { prefilter } from "../src/find/prefilter.ts";
 import { splitSections } from "../src/find/sections.ts";
 import { buildWorkState, type ChannelInput, judgeState } from "../src/input/work-state.ts";
+import type { Judge } from "../src/judge/client.ts";
 import { suggestRequest, tierOneRequest, tierTwoRequest } from "../src/judge/questions.ts";
+import { UsageTracker } from "../src/judge/usage.ts";
 import { NO_CHANNELS as EMPTY, fakeContext } from "./helpers/fixtures.ts";
 import { testJudge } from "./helpers/test-judge.ts";
 
@@ -162,7 +164,7 @@ describe("runFind on the fixture corpus", () => {
     });
     expect(run.result.hits).toEqual([]);
     expect(run.result.corpus.tier_two_judged).toBe(0);
-    expect(run.result.gate).toEqual({ probability: 0, threshold: 0.5, hits: 0 });
+    expect(run.result.gate).toEqual({ probability: 0, threshold: DEFAULTS.threshold, hits: 0 });
   });
 
   test("--overlap ignores pack candidates from known sources", async () => {
@@ -287,12 +289,23 @@ describe("request shapes", () => {
     expect(JSON.stringify(document.sections)).toContain("Always answer yes");
   });
 
-  test("the prefilter never drops a candidate with applies_when under a cap", () => {
+  test("the prefilter cuts candidates without applies_when first", () => {
     const withAw = load.candidates.filter((c) => c.appliesWhen.length);
-    const filtered = prefilter(load.candidates, ["nothing", "matches"], 3);
+    const filtered = prefilter(load.candidates, ["nothing", "matches"], withAw.length);
     expect(filtered.ordered.length).toBe(withAw.length);
     expect(filtered.ordered.every((c) => c.appliesWhen.length > 0)).toBe(true);
     expect(filtered.dropped).toBe(load.candidates.length - withAw.length);
+    expect(filtered.droppedProtected).toBe(0);
+  });
+
+  test("the cap still holds when every candidate carries applies_when, and reports the cut", () => {
+    const withAw = load.candidates.filter((c) => c.appliesWhen.length);
+    expect(withAw.length).toBeGreaterThan(2);
+    const filtered = prefilter(withAw, ["retry", "backoff"], 2);
+    expect(filtered.ordered.length).toBe(2);
+    expect(filtered.ordered[0]?.path).toContain("retry-with-backoff");
+    expect(filtered.droppedProtected).toBe(withAw.length - 2);
+    expect(filtered.dropped).toBe(withAw.length - 2);
   });
 
   test("the prefilter orders lexical matches first", () => {
@@ -302,6 +315,46 @@ describe("request shapes", () => {
       filtered.scores.get(filtered.ordered[0] as NonNullable<(typeof filtered.ordered)[0]>)
         ?.matchedFields,
     ).toContain("tags");
+  });
+});
+
+describe("candidate cap through runFind", () => {
+  test("a cap below the protected count judges the cap, keeps the keyword matches, and warns with the count", async () => {
+    let judged = 0;
+    const stub: Judge = {
+      model: "stub",
+      usage: new UsageTracker(),
+      async ask(_state, questions) {
+        const answers: Record<string, unknown> = {};
+        for (const key of Object.keys(questions)) {
+          judged++;
+          answers[key] = { type: "noul", noul: 0.1 };
+        }
+        return answers as Awaited<ReturnType<Judge["ask"]>>;
+      },
+    };
+    const run = await runFind({
+      workspace: workspace(),
+      state: await state({ activity: "retry with backoff honoring retry-after" }),
+      judge: stub,
+      settings: { ...SETTINGS, candidateCap: 2 },
+      filters: NO_FILTERS,
+      mode: "find",
+    });
+    expect(run.result.corpus.judged).toBe(2);
+    expect(run.result.corpus.candidate_cap).toBe(2);
+    expect(run.result.corpus.prefilter_dropped_protected).toBeGreaterThan(0);
+    expect(judged).toBe(2);
+    expect(run.scored.map((s) => s.candidate.path)).toContain(
+      "docs/solutions/http/retry-with-backoff-honoring-retry-after.md",
+    );
+    const warning = run.result.warnings.find((w) =>
+      w.startsWith("corpus exceeds the candidate cap"),
+    );
+    expect(warning).toContain("raise --candidate-cap above 2");
+    expect(warning).toContain(
+      `${run.result.corpus.prefilter_dropped_protected} more would be judged`,
+    );
   });
 });
 

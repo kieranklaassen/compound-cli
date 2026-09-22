@@ -34,6 +34,8 @@ export type JudgeOptions = {
   apiKey: string;
   model?: string;
   parallel?: number;
+  /** Share one request gate across judges so `parallel` bounds the process, not each judge. */
+  requests?: Semaphore;
   fetch?: Fetch;
   timeoutMs?: number;
   retry?: Partial<RetryPolicy>;
@@ -62,7 +64,7 @@ export function createJudge(options: JudgeOptions): Judge {
     retry: { ...RETRY, ...options.retry },
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
-  const semaphore = new Semaphore(options.parallel ?? DEFAULTS.parallel);
+  const semaphore = options.requests ?? new Semaphore(options.parallel ?? DEFAULTS.parallel);
   const usage = new UsageTracker();
 
   return {
@@ -114,7 +116,7 @@ export function createJudge(options: JudgeOptions): Judge {
 /** Build a judge from the environment: key check, cassette mode, model, parallelism. */
 export function judgeFromEnv(
   env: Env,
-  options: { model?: string; parallel?: number; fetch?: Fetch } = {},
+  options: { model?: string; parallel?: number; fetch?: Fetch; requests?: Semaphore } = {},
 ): Judge {
   const apiKey = requireApiKey(env);
   const mode = cassetteMode(env);
@@ -130,6 +132,7 @@ export function judgeFromEnv(
     apiKey,
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.parallel !== undefined ? { parallel: options.parallel } : {}),
+    ...(options.requests ? { requests: options.requests } : {}),
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
     ...(retry ? { retry } : {}),
   });
@@ -158,6 +161,14 @@ function toJudgeError(error: unknown): JudgeError {
     });
   }
   return new JudgeError(errorMessage(error).slice(0, 300), { cause: error });
+}
+
+/** An expected rubric level normalized to 0..1 (top level = 1). */
+export function scoreOf(answers: Answers, key: string): number {
+  const answer = answers[key];
+  if (answer?.type !== "score") throw new JudgeError(`expected a score answer for ${key}`);
+  const levels = Object.keys(answer.legend).length;
+  return levels > 1 ? answer.score / (levels - 1) : answer.score;
 }
 
 export function noulOf(answers: Answers, key: string): number {

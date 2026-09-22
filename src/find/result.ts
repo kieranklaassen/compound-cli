@@ -42,7 +42,11 @@ export type CorpusCounts = {
   pack_candidates: number;
   judged: number;
   tier_two_judged: number;
+  /** Candidates the cap cut before judging, of any kind. */
   prefilter_dropped: number;
+  /** Of those, candidates that carry applies_when; non-zero means the corpus outgrew the cap. */
+  prefilter_dropped_protected: number;
+  candidate_cap: number;
   filtered_out: FilteredOut;
 };
 
@@ -53,6 +57,8 @@ export type FindResult = {
   hits: Hit[];
   nothing_relevant: boolean;
   threshold: number;
+  /** The bar pack suggestions (tier-one probabilities) are held to, on their own scale. */
+  suggest_threshold: number;
   tier_one_threshold: number;
   frontmatter_only: boolean;
   gate: GateResult | null;

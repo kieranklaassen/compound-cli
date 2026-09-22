@@ -78,6 +78,9 @@ export type BenchReport = {
   name: string;
   threshold: number;
   aggregate: Aggregate;
+  /** F0.5 at the operating threshold. */
+  f05: number | null;
+  recall_at_precision_floor: FlooredRecall | null;
   sweep: Aggregate[];
   cases: CaseScore[];
   latency_ms: { median: number; p90: number; mean: number; total: number };
@@ -154,6 +157,65 @@ export function aggregate(scores: CaseScore[], threshold: number): Aggregate {
     perfect_cases: positives.filter((s) => s.recall === 1).length + negativesCorrect,
     labeling_errors: scores.reduce((n, s) => n + s.unknown_expected.length, 0),
   };
+}
+
+/** F-beta with beta 0.5: precision weighs more than recall, so a degenerate low threshold scores badly. */
+export function fBeta(precision: number | null, recall: number | null, beta = 0.5): number | null {
+  if (precision === null || recall === null) return null;
+  if (precision === 0 && recall === 0) return 0;
+  const b2 = beta * beta;
+  return round4(((1 + b2) * precision * recall) / (b2 * precision + recall));
+}
+
+export type FlooredRecall = {
+  precision_floor: number;
+  /** The best micro recall among thresholds whose precision lower bound meets the floor, or null when none does. */
+  recall: number | null;
+  macro_recall: number | null;
+  threshold: number | null;
+  precision_lower_bound: number | null;
+  negatives_correct: number | null;
+  f05: number | null;
+};
+
+/**
+ * Recall at a precision floor: sweep thresholds over the recorded judgments and
+ * take the highest recall whose precision lower bound stays at or above the
+ * floor. Lowering the threshold cannot win this metric by itself.
+ */
+export function recallAtPrecisionFloor(runs: CaseRun[], floor: number): FlooredRecall {
+  let best: FlooredRecall = {
+    precision_floor: floor,
+    recall: null,
+    macro_recall: null,
+    threshold: null,
+    precision_lower_bound: null,
+    negatives_correct: null,
+    f05: null,
+  };
+  for (let i = 5; i <= 95; i += 5) {
+    const threshold = i / 100;
+    const agg = aggregate(
+      runs.map((r) => scoreCase(r, threshold)),
+      threshold,
+    );
+    const precision = agg.precision_lower_bound ?? 0;
+    const recall = agg.micro_recall ?? 0;
+    if (precision < floor) continue;
+    // Ties resolve to the highest threshold: same recall, fewer unlabeled hits.
+    if (best.recall === null || recall >= best.recall) {
+      best = {
+        precision_floor: floor,
+        recall,
+        macro_recall: agg.macro_recall,
+        threshold,
+        precision_lower_bound: agg.precision_lower_bound,
+        negatives_correct: agg.negatives_correct,
+        f05: fBeta(agg.precision_lower_bound, agg.micro_recall),
+      };
+    }
+  }
+  return best;
 }
 
 export function latencyStats(values: number[]): BenchReport["latency_ms"] {

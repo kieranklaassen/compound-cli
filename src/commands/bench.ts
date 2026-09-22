@@ -1,10 +1,11 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
   HELP_OPTION,
   type OptionSpecs,
   parseCommandArgs,
   ROOT_OPTION,
+  requireInteger,
   requireProbability,
 } from "../args.ts";
 import { type BenchCase, type CasesFile, readCasesFile } from "../bench/cases.ts";
@@ -13,22 +14,27 @@ import {
   type BenchReport,
   type CaseRun,
   type CaseScore,
+  fBeta,
   floorFailures,
   latencyStats,
+  recallAtPrecisionFloor,
   scoreCase,
 } from "../bench/score.ts";
 import type { CeConfig } from "../config/ce-config.ts";
 import type { Context } from "../context.ts";
 import { createGitCache } from "../corpus/git-cache.ts";
 import { loadCorpus, type Workspace } from "../corpus/load.ts";
-import { MissingCorpusError, UsageError } from "../errors.ts";
+import { CliError, MissingCorpusError, UsageError } from "../errors.ts";
 import { EXIT } from "../exit-codes.ts";
 import { NO_FILTERS } from "../find/filters.ts";
 import { type JudgeSettings, runFind } from "../find/find.ts";
 import { BENCH_HELP } from "../help.ts";
 import { buildWorkState } from "../input/work-state.ts";
-import { CASSETTE_DIR_VARIABLE, cassetteMode } from "../judge/api-key.ts";
+import { CASSETTE_DIR_VARIABLE, type CassetteMode, cassetteMode } from "../judge/api-key.ts";
+import { writeFileAtomically } from "../judge/cassette.ts";
 import { judgeFromEnv } from "../judge/client.ts";
+import { Semaphore } from "../judge/semaphore.ts";
+import { errorMessage } from "../util.ts";
 import { resolveJudgeSettings } from "./find-options.ts";
 
 const BENCH_OPTIONS = {
@@ -47,6 +53,8 @@ const BENCH_OPTIONS = {
   "excerpt-chars": { type: "string" },
   model: { type: "string" },
   only: { type: "string", multiple: true },
+  jobs: { type: "string" },
+  "precision-floor": { type: "string" },
 } as const satisfies OptionSpecs;
 
 /** Corpus clones may take longer than a skill call; give them two minutes. */
@@ -69,8 +77,15 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     .filter(Boolean)
     .map((s) => requireProbability("sweep", s, 0));
   const only = new Set(v.only ?? []);
+  const jobs = requireInteger("jobs", v.jobs, 1);
+  const precisionFloor =
+    v["precision-floor"] === undefined
+      ? undefined
+      : requireProbability("precision-floor", v["precision-floor"], 0);
 
-  const judge = judgeFromEnv(ctx.env, { model: settings.model, parallel: settings.parallel });
+  // The key check runs before any corpus read (plan R28); each case then gets
+  // its own judge so usage is attributed per case even when cases run concurrently.
+  judgeFromEnv(ctx.env, { model: settings.model, parallel: settings.parallel });
   const workspace = benchWorkspace(file, ctx, v.root);
   const cases = only.size ? file.cases.filter((c) => only.has(c.id)) : file.cases;
   if (cases.length === 0) throw new UsageError("no cases selected");
@@ -84,47 +99,81 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   const warnings = new Set<string>(corpus.warnings);
   const mode = cassetteMode(ctx.env);
   const manifest = readManifest(ctx, mode);
-  const thresholdDrift =
-    manifest !== undefined && mode === "replay" && manifest.threshold !== settings.threshold;
-  if (thresholdDrift) {
+  const pinFailure = thresholdPinFailure(manifest, mode, settings.threshold);
+  if (pinFailure) {
     warnings.add(
-      `cassettes were recorded at threshold ${manifest.threshold}; this run scores at ${settings.threshold} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
+      `${pinFailure} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
     );
   }
-  for (const benchCase of cases) {
-    const before = judge.usage.snapshot();
-    const started = performance.now();
-    const run = await runFind({
-      workspace,
-      state: await buildWorkState(toChannels(benchCase), ctx),
-      judge,
-      settings,
-      filters: NO_FILTERS,
-      mode: "find",
-      corpus,
-    });
-    const after = judge.usage.snapshot();
-    for (const warning of run.result.warnings) warnings.add(warning);
-    const caseRun: CaseRun = {
-      benchCase,
-      run,
-      corpusPaths,
-      wall_ms: Math.round(performance.now() - started),
-      requests: after.requests - before.requests,
-      input_tokens: after.input_tokens - before.input_tokens,
-      estimated_usd: Number((after.estimated_usd - before.estimated_usd).toFixed(8)),
-    };
-    runs.push(caseRun);
-    if (!v.json) ctx.stderr(`${progressLine(caseRun, settings.threshold)}\n`);
-  }
+  // One request gate for the whole run, so --parallel bounds in-flight requests
+  // no matter how many cases run at once; one abort, so the first failure stops
+  // every queued case instead of letting them keep judging and billing.
+  const gate = new Semaphore(jobs);
+  const requests = new Semaphore(settings.parallel);
+  const stop = new AbortController();
+  const total = { requests: 0, input_tokens: 0, estimated_usd: 0, model: null as string | null };
+  await Promise.all(
+    cases.map((benchCase, index) =>
+      gate.run(async () => {
+        if (stop.signal.aborted) return;
+        const judge = judgeFromEnv(ctx.env, {
+          model: settings.model,
+          parallel: settings.parallel,
+          requests,
+        });
+        const started = performance.now();
+        let run: Awaited<ReturnType<typeof runFind>>;
+        try {
+          run = await runFind({
+            workspace,
+            state: await buildWorkState(toChannels(benchCase, workspace.repoRoot, casesPath), ctx),
+            judge,
+            settings,
+            filters: NO_FILTERS,
+            mode: "find",
+            corpus,
+          });
+        } catch (error) {
+          stop.abort(error);
+          if (error instanceof CliError) {
+            throw new CliError(`case "${benchCase.id}": ${error.message}`, error.exitCode, {
+              cause: error,
+            });
+          }
+          throw error;
+        }
+        const usage = judge.usage.snapshot();
+        for (const warning of run.result.warnings) warnings.add(warning);
+        const caseRun: CaseRun = {
+          benchCase,
+          run,
+          corpusPaths,
+          wall_ms: Math.round(performance.now() - started),
+          requests: usage.requests,
+          input_tokens: usage.input_tokens,
+          estimated_usd: usage.estimated_usd,
+        };
+        runs[index] = caseRun;
+        total.requests += usage.requests;
+        total.input_tokens += usage.input_tokens;
+        total.estimated_usd += usage.estimated_usd;
+        total.model = usage.model ?? total.model;
+        if (!v.json) ctx.stderr(`${progressLine(caseRun, settings.threshold)}\n`);
+      }, stop.signal),
+    ),
+  );
 
   const scores = runs.map((r) => scoreCase(r, settings.threshold));
-  const usage = judge.usage.snapshot();
+  const usage = { ...total, estimated_usd: Number(total.estimated_usd.toFixed(8)) };
+  const operating = aggregate(scores, settings.threshold);
   const report: BenchReport = {
     schema_version: 1,
     name: file.name,
     threshold: settings.threshold,
-    aggregate: aggregate(scores, settings.threshold),
+    aggregate: operating,
+    f05: fBeta(operating.precision_lower_bound, operating.micro_recall),
+    recall_at_precision_floor:
+      precisionFloor === undefined ? null : recallAtPrecisionFloor(runs, precisionFloor),
     sweep: sweep.map((t) =>
       aggregate(
         runs.map((r) => scoreCase(r, t)),
@@ -148,7 +197,11 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     cassette_mode: mode,
     warnings: [...warnings],
   };
-  if (mode === "record") writeManifest(ctx, settings, report.model);
+  // auto leaves a pin behind for a fresh recording but never rewrites one: the
+  // pin records what the cassettes were scored at, not what this run used.
+  if (mode === "record" || (mode === "auto" && manifest === undefined)) {
+    writeManifest(ctx, settings, report.model);
+  }
 
   if (v.out) {
     const outPath = resolve(ctx.cwd, v.out);
@@ -160,11 +213,7 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
 
   if (v["enforce-floor"]) {
     const failures = floorFailures(report.aggregate, file.floor ?? {});
-    if (thresholdDrift) {
-      failures.push(
-        `threshold ${settings.threshold} differs from the recorded ${manifest.threshold}`,
-      );
-    }
+    if (pinFailure) failures.push(pinFailure);
     if (failures.length) {
       for (const failure of failures) ctx.stderr(`compound bench: ${failure}\n`);
       return EXIT.INTERNAL;
@@ -210,7 +259,7 @@ function benchWorkspace(
   return { repoRoot, config, git };
 }
 
-function toChannels(benchCase: BenchCase) {
+function toChannels(benchCase: BenchCase, corpusRoot: string, casesPath: string) {
   const q = benchCase.query;
   return {
     activity: q.activity,
@@ -219,8 +268,8 @@ function toChannels(benchCase: BenchCase) {
     domains: q.domains ?? [],
     modules: q.modules ?? [],
     paths: q.paths ?? [],
-    diffPath: undefined,
-    planPath: undefined,
+    diffPath: q.diff === undefined ? undefined : resolve(dirname(casesPath), q.diff),
+    planPath: q.plan === undefined ? undefined : resolve(corpusRoot, q.plan),
     docPath: undefined,
   };
 }
@@ -258,6 +307,15 @@ export function renderBench(report: BenchReport): string {
     `negatives correct      ${pct(a.negatives_correct)}   (${a.negative_cases} negative cases)`,
   );
   lines.push(`perfect cases          ${a.perfect_cases} of ${a.cases}`);
+  lines.push(`f0.5                   ${report.f05 === null ? "n/a" : report.f05.toFixed(3)}`);
+  const floored = report.recall_at_precision_floor;
+  if (floored) {
+    lines.push(
+      floored.recall === null
+        ? `recall at precision >= ${floored.precision_floor}: no threshold meets the floor`
+        : `recall at precision >= ${floored.precision_floor}: ${pct(floored.recall)} at threshold ${floored.threshold} (precision ${pct(floored.precision_lower_bound)}, negatives ${pct(floored.negatives_correct)}, f0.5 ${floored.f05})`,
+    );
+  }
   if (a.labeling_errors)
     lines.push(`labeling errors        ${a.labeling_errors} expected paths not in the corpus`);
   lines.push("");
@@ -319,14 +377,40 @@ function manifestPath(ctx: Context): string | undefined {
   return dir ? resolve(ctx.cwd, dir, "manifest.json") : undefined;
 }
 
-function readManifest(ctx: Context, mode: string): Manifest | undefined {
+/**
+ * A replay scores recorded answers, so only the pin makes a threshold change
+ * visible: a pin that is missing is as unsound as one that disagrees. Auto
+ * mode replays whatever it has, so a pin that disagrees is a failure there
+ * too; a missing one is not, because the run writes it.
+ */
+function thresholdPinFailure(
+  manifest: Manifest | Error | undefined,
+  mode: CassetteMode,
+  threshold: number,
+): string | undefined {
+  if (mode !== "replay" && mode !== "auto") return undefined;
+  if (manifest === undefined) {
+    return mode === "replay"
+      ? "the cassettes have no manifest.json pinning the threshold they were recorded at"
+      : undefined;
+  }
+  if (manifest instanceof Error) return `${manifest.message}; re-record the cassettes`;
+  if (manifest.threshold !== threshold)
+    return `threshold ${threshold} differs from the recorded ${manifest.threshold}`;
+  return undefined;
+}
+
+/** `undefined` when there is no manifest; `Error` when one exists but cannot be trusted. */
+function readManifest(ctx: Context, mode: string): Manifest | Error | undefined {
   if (mode === "off") return undefined;
   const path = manifestPath(ctx);
-  if (!path) return undefined;
+  if (!path || !existsSync(path)) return undefined;
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as Manifest;
-  } catch {
-    return undefined;
+    const manifest = JSON.parse(readFileSync(path, "utf8")) as Partial<Manifest>;
+    if (typeof manifest.threshold !== "number") return new Error("manifest.json has no threshold");
+    return manifest as Manifest;
+  } catch (error) {
+    return new Error(`manifest.json is unreadable: ${errorMessage(error)}`);
   }
 }
 
@@ -341,5 +425,5 @@ function writeManifest(ctx: Context, settings: JudgeSettings, model: string | nu
     model_answered: model,
   };
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileAtomically(path, `${JSON.stringify(manifest, null, 2)}\n`);
 }

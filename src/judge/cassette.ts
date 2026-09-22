@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Fetch } from "@typesafe-ai/sdk";
 import { errorMessage } from "../util.ts";
@@ -29,31 +29,33 @@ export function cassetteFetch(
     const request = parseJson(bodyText);
     const hash = requestHash(request);
     const file = join(dir, `${hash}.json`);
-    if (mode === "replay") {
+    if (mode === "replay" || (mode === "auto" && existsSync(file))) {
       if (!existsSync(file)) {
         return new Response(JSON.stringify({ error: CASSETTE_MISS_MARKER, hash, dir }), {
           status: 404,
           headers: { "content-type": "application/json" },
         });
       }
-      let stored: CassetteFile;
-      try {
-        stored = JSON.parse(readFileSync(file, "utf8")) as CassetteFile;
-      } catch (error) {
-        return new Response(
-          JSON.stringify({
-            error: CASSETTE_MISS_MARKER,
-            hash,
-            dir,
-            reason: `unreadable recording: ${errorMessage(error)}`,
-          }),
-          { status: 404, headers: { "content-type": "application/json" } },
-        );
+      const stored = readRecording(file);
+      if (stored instanceof Error) {
+        // Replay must fail loudly; auto re-records over a recording a crash left half-written.
+        if (mode === "replay") {
+          return new Response(
+            JSON.stringify({
+              error: CASSETTE_MISS_MARKER,
+              hash,
+              dir,
+              reason: `unreadable recording: ${stored.message}`,
+            }),
+            { status: 404, headers: { "content-type": "application/json" } },
+          );
+        }
+      } else {
+        return new Response(JSON.stringify(stored.body), {
+          status: stored.status,
+          headers: { "content-type": "application/json" },
+        });
       }
-      return new Response(JSON.stringify(stored.body), {
-        status: stored.status,
-        headers: { "content-type": "application/json" },
-      });
     }
     const response = await realFetch(input, init);
     const text = await response.text();
@@ -70,10 +72,28 @@ export function cassetteFetch(
         },
       };
       mkdirSync(dir, { recursive: true });
-      writeFileSync(file, `${JSON.stringify(stored, null, 2)}\n`);
+      // Compact: a held-out set is thousands of these files.
+      writeFileAtomically(file, `${JSON.stringify(stored)}\n`);
     }
     return new Response(text, { status: response.status, headers: response.headers });
   };
+}
+
+function readRecording(file: string): CassetteFile | Error {
+  try {
+    const stored = JSON.parse(readFileSync(file, "utf8")) as CassetteFile;
+    if (typeof stored?.status !== "number") return new Error("no status in recording");
+    return stored;
+  } catch (error) {
+    return new Error(errorMessage(error));
+  }
+}
+
+/** Write to a sibling temp file and rename, so a crash never leaves a half-written recording. */
+export function writeFileAtomically(file: string, text: string): void {
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, text);
+  renameSync(tmp, file);
 }
 
 export function requestHash(request: unknown): string {

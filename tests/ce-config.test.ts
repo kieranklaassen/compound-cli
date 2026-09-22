@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadCeConfig } from "../src/config/ce-config.ts";
 import { resolveRepoRoot } from "../src/config/repo-root.ts";
 import { UsageError } from "../src/errors.ts";
-import { tempRepo } from "./helpers/fixtures.ts";
+import { tempDir, tempRepo } from "./helpers/fixtures.ts";
 
 const FIXTURES = resolve(import.meta.dir, "fixtures");
 
@@ -70,7 +68,7 @@ describe("resolveRepoRoot", () => {
   });
 
   test("a plain directory outside any checkout resolves to itself", () => {
-    const dir = mkdtempSync(join(tmpdir(), "compound-cli-root-"));
+    const dir = tempDir("compound-cli-root-");
     const result = resolveRepoRoot(dir);
     expect(result.root).toBe(dir);
     expect(result.source).toBe("cwd");

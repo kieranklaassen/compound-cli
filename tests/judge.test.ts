@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { choice, type Fetch, noul, type Questions } from "@typesafe-ai/sdk";
 import { JudgeError } from "../src/errors.ts";
@@ -8,6 +7,8 @@ import { MAX_NOULS_PER_REQUEST, planBatches, REQUEST_TOKEN_BUDGET } from "../src
 import { canonicalJson, cassetteFetch, requestHash } from "../src/judge/cassette.ts";
 import { createJudge, judgeFromEnv, noulOf } from "../src/judge/client.ts";
 import { Semaphore } from "../src/judge/semaphore.ts";
+
+import { tempDir } from "./helpers/fixtures.ts";
 
 const KEY = "test-key-never-stored-1234567890";
 const FAST_RETRY = { backoffInitialMs: 1, backoffMaxMs: 2, backoffJitter: 0 };
@@ -199,7 +200,7 @@ describe("createJudge", () => {
 
 describe("cassettes", () => {
   test("record writes one file per request without key material; replay returns the same answers offline", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "compound-cli-cassette-"));
+    const dir = tempDir("compound-cli-cassette-");
     const server = fakeServer();
     const recorder = createJudge({
       apiKey: KEY,
@@ -228,8 +229,40 @@ describe("cassettes", () => {
     expect(replayed).toEqual(recorded);
   });
 
+  test("auto replays what it has, records what it lacks, and re-records a half-written file", async () => {
+    const dir = tempDir("compound-cli-cassette-");
+    const server = fakeServer();
+    const recorder = createJudge({
+      apiKey: KEY,
+      fetch: cassetteFetch("record", dir, server.fetch),
+      retry: FAST_RETRY,
+    });
+    const recorded = await recorder.ask({ s: 1 }, nouls(3));
+    expect(server.requests).toHaveLength(1);
+
+    const auto = createJudge({
+      apiKey: KEY,
+      fetch: cassetteFetch("auto", dir, server.fetch),
+      retry: FAST_RETRY,
+    });
+    expect(await auto.ask({ s: 1 }, nouls(3))).toEqual(recorded);
+    expect(server.requests).toHaveLength(1);
+    await auto.ask({ s: 2 }, nouls(3));
+    expect(server.requests).toHaveLength(2);
+    expect(readdirSync(dir).filter((f) => f.endsWith(".json"))).toHaveLength(2);
+    await auto.ask({ s: 2 }, nouls(3));
+    expect(server.requests).toHaveLength(2);
+
+    const hash = requestHash({ model: "jev-latest", state: { s: 2 }, questions: nouls(3) });
+    writeFileSync(join(dir, `${hash}.json`), "{ half-written");
+    await auto.ask({ s: 2 }, nouls(3));
+    expect(server.requests).toHaveLength(3);
+    expect(JSON.parse(readFileSync(join(dir, `${hash}.json`), "utf8")).request_hash).toBe(hash);
+    expect(readdirSync(dir).some((f) => f.endsWith(".tmp"))).toBe(false);
+  });
+
   test("a corrupted cassette is reported as an unreadable recording, not a network error", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "compound-cli-cassette-"));
+    const dir = tempDir("compound-cli-cassette-");
     const hash = requestHash({ model: "jev-latest", state: { s: 1 }, questions: nouls(1) });
     writeFileSync(join(dir, `${hash}.json`), "{ not json");
     const judge = createJudge({
@@ -241,7 +274,7 @@ describe("cassettes", () => {
   });
 
   test("a replay miss is a judge failure naming the hash", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "compound-cli-cassette-"));
+    const dir = tempDir("compound-cli-cassette-");
     const judge = createJudge({
       apiKey: "x",
       fetch: cassetteFetch("replay", dir),
@@ -260,7 +293,7 @@ describe("cassettes", () => {
   });
 
   test("judgeFromEnv uses a placeholder key in replay mode and requires a cassette dir", () => {
-    const dir = mkdtempSync(join(tmpdir(), "compound-cli-cassette-"));
+    const dir = tempDir("compound-cli-cassette-");
     expect(() => judgeFromEnv({ COMPOUND_CASSETTE_MODE: "replay" })).toThrow(
       /COMPOUND_CASSETTE_DIR/,
     );

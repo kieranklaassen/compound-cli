@@ -1,0 +1,77 @@
+{
+  "request_hash": "3aa918be26ee232d717308820de57386a57587a4eb1af78457136f0aff8a7d59",
+  "status": 200,
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "c000": {
+        "type": "noul",
+        "noul": 0.06
+      },
+      "c001": {
+        "type": "noul",
+        "noul": 0.07
+      },
+      "c002": {
+        "type": "noul",
+        "noul": 0.22
+      },
+      "c003": {
+        "type": "noul",
+        "noul": 0.15
+      },
+      "c004": {
+        "type": "noul",
+        "noul": 0.17
+      },
+      "c005": {
+        "type": "noul",
+        "noul": 0.06
+      },
+      "c006": {
+        "type": "noul",
+        "noul": 0.06
+      },
+      "c007": {
+        "type": "noul",
+        "noul": 0.05
+      },
+      "c008": {
+        "type": "noul",
+        "noul": 0.82
+      },
+      "c009": {
+        "type": "noul",
+        "noul": 0.04
+      },
+      "c010": {
+        "type": "noul",
+        "noul": 0.05
+      },
+      "c011": {
+        "type": "noul",
+        "noul": 0.05
+      },
+      "c012": {
+        "type": "noul",
+        "noul": 0.05
+      },
+      "c013": {
+        "type": "noul",
+        "noul": 0.04
+      },
+      "c014": {
+        "type": "noul",
+        "noul": 0.04
+      }
+    },
+    "usage": {
+      "input_tokens": 5235,
+      "output_tokens": 289
+    }
+  },
+  "meta": {
+    "model": "jev-latest",
+    "question_count": 15
+  }
+}

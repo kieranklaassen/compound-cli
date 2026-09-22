@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { appendPackEntry, renderEntry } from "../src/commands/packs-add.ts";
 import { loadCeConfig } from "../src/config/ce-config.ts";
@@ -18,12 +17,12 @@ import { runFind } from "../src/find/find.ts";
 import { repoProfile } from "../src/input/repo-profile.ts";
 import { buildWorkState } from "../src/input/work-state.ts";
 import { suggestRequest } from "../src/judge/questions.ts";
-import { fakeContext, NO_CHANNELS } from "./helpers/fixtures.ts";
+import { cassetteEnv, fakeContext, NO_CHANNELS, tempDir } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 import { testJudge } from "./helpers/test-judge.ts";
 
 const CORPUS = resolve(import.meta.dir, "fixtures/corpus");
-const EMPTY_HOME = mkdtempSync(join(tmpdir(), "compound-cli-home-"));
+const EMPTY_HOME = tempDir("compound-cli-home-");
 
 const ctx = fakeContext({ cwd: CORPUS });
 
@@ -39,7 +38,7 @@ describe("knownSources", () => {
   });
 
   test("includes ~/compound-packs/packs when the directory exists", () => {
-    const home = mkdtempSync(join(tmpdir(), "compound-cli-home-"));
+    const home = tempDir("compound-cli-home-");
     cpSync(join(CORPUS, "packs"), join(home, "compound-packs", "packs"), { recursive: true });
     const sources = knownSources(loadCeConfig(CORPUS), { HOME: home });
     expect(sources[0]?.source).toBe(HOME_SOURCE);
@@ -65,7 +64,7 @@ describe("loadPackCandidates", () => {
   });
 
   test("a declared pack is not a candidate and a home source wins over a git source for the same id", () => {
-    const home = mkdtempSync(join(tmpdir(), "compound-cli-home-"));
+    const home = tempDir("compound-cli-home-");
     cpSync(join(CORPUS, "packs"), join(home, "compound-packs", "packs"), { recursive: true });
     const load = loadPackCandidates(
       loadCeConfig(CORPUS),
@@ -155,7 +154,7 @@ describe("repo profile and suggest request", () => {
 
 describe("packs add", () => {
   function tempConfig(content: string | null): { root: string; path: string } {
-    const root = mkdtempSync(join(tmpdir(), "compound-cli-add-"));
+    const root = tempDir("compound-cli-add-");
     const path = join(root, ".compound-engineering", "config.yaml");
     if (content !== null) {
       cpSync(join(CORPUS, ".compound-engineering"), join(root, ".compound-engineering"), {
@@ -214,7 +213,7 @@ describe("packs add", () => {
       join(root, ".compound-engineering", "config.local.yaml"),
     );
     // The built-in git source counts as cached and empty, so the test never reaches the network.
-    const cacheRoot = mkdtempSync(join(tmpdir(), "compound-cli-cache-"));
+    const cacheRoot = tempDir("compound-cli-cache-");
     mkdirSync(join(cacheRoot, cacheKey(EVERY_SOURCE, "main"), "packs"), { recursive: true });
     const env = { HOME: EMPTY_HOME, CE_PACKS_CACHE_ROOT: cacheRoot };
 
@@ -237,13 +236,12 @@ describe("packs add", () => {
 });
 
 describe("packs suggest command", () => {
-  const cacheRoot = mkdtempSync(join(tmpdir(), "compound-cli-cache-"));
+  const cacheRoot = tempDir("compound-cli-cache-");
   mkdirSync(join(cacheRoot, cacheKey(EVERY_SOURCE, "main"), "packs"), { recursive: true });
   const env = {
     HOME: EMPTY_HOME,
     CE_PACKS_CACHE_ROOT: cacheRoot,
-    COMPOUND_CASSETTE_MODE: "replay",
-    COMPOUND_CASSETTE_DIR: resolve(import.meta.dir, "fixtures/cassettes/suggest"),
+    ...cassetteEnv(resolve(import.meta.dir, "fixtures/cassettes/suggest")),
   };
 
   test("--json lists the undeclared pack with its declaration when the work matches", async () => {

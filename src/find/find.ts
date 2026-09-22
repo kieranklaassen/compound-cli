@@ -3,10 +3,12 @@ import type { Candidate, CandidateLoad } from "../corpus/candidate.ts";
 import { type CorpusLoad, loadCorpus, type Workspace } from "../corpus/load.ts";
 import type { PacksResolution } from "../corpus/packs.ts";
 import { MissingCorpusError } from "../errors.ts";
+import { PLAN_TEXT_CHARS } from "../input/plan.ts";
 import { assertWorkFits, judgeState, type WorkState } from "../input/work-state.ts";
 import type { Judge } from "../judge/client.ts";
 import type { JudgeWork } from "../judge/questions.ts";
 import { errorMessage, round4 } from "../util.ts";
+import { DEFAULTS } from "./defaults.ts";
 import { applyFilters, type CandidateFilters } from "./filters.ts";
 import { judgeOverlap } from "./overlap.ts";
 import { prefilter } from "./prefilter.ts";
@@ -75,6 +77,16 @@ export async function runFind(input: FindInput): Promise<FindRun> {
   if (kept.length === 0 && all.length > 0)
     warnings.push("every candidate was removed by the filters");
   const filtered = prefilter(kept, state.keywords, settings.candidateCap);
+  if (filtered.droppedProtected > 0) {
+    warnings.push(
+      `corpus exceeds the candidate cap of ${settings.candidateCap}: ${filtered.droppedProtected} candidates with applies_when were cut by keyword order (raise --candidate-cap above ${settings.candidateCap}; ${filtered.droppedProtected} more would be judged)`,
+    );
+  }
+  if (state.plan?.text_truncated) {
+    warnings.push(
+      `plan text was cut to ${PLAN_TEXT_CHARS} characters (the plan has ${state.plan.text_chars}); the judge read the beginning`,
+    );
+  }
 
   const learningsAndRules = filtered.ordered.filter((c) => c.kind !== "pack_candidate");
   const packs = filtered.ordered.filter((c) => c.kind === "pack_candidate");
@@ -142,8 +154,12 @@ export async function runFind(input: FindInput): Promise<FindRun> {
 
   const hits = buildHits(scored, settings.threshold);
   // The gate is the strongest confirmed score (plan KTD10); a tier-one score that
-  // never earned a body read is not confirmation.
-  const bestScore = Math.max(0, ...scored.map((e) => e.score ?? 0));
+  // never earned a body read is not confirmation, and pack suggestions live on
+  // another scale, so they never move the gate.
+  const bestScore = Math.max(
+    0,
+    ...scored.filter((e) => e.candidate.kind !== "pack_candidate").map((e) => e.score ?? 0),
+  );
   const run: FindRun = {
     scored,
     result: {
@@ -153,6 +169,7 @@ export async function runFind(input: FindInput): Promise<FindRun> {
       hits,
       nothing_relevant: hits.length === 0,
       threshold: settings.threshold,
+      suggest_threshold: DEFAULTS.suggestThreshold,
       tier_one_threshold: settings.tierOneThreshold,
       frontmatter_only: settings.frontmatterOnly,
       gate:
@@ -167,6 +184,8 @@ export async function runFind(input: FindInput): Promise<FindRun> {
         judged: filtered.ordered.length,
         tier_two_judged: tierTwoJudged,
         prefilter_dropped: filtered.dropped,
+        prefilter_dropped_protected: filtered.droppedProtected,
+        candidate_cap: settings.candidateCap,
         filtered_out: filteredOut,
       },
       warnings,
@@ -190,10 +209,18 @@ export function declaredPackIds(config: CeConfig, resolution: PacksResolution): 
   return ids;
 }
 
-/** Hits are the scored candidates at or above the threshold, strongest first. */
+/**
+ * Hits are the scored candidates at or above their threshold, strongest first.
+ * Pack suggestions are tier-one Noul probabilities on a different scale from
+ * the graded tier-two score, so they keep their own threshold.
+ */
 export function buildHits(scored: ScoredCandidate[], threshold: number): Hit[] {
   return scored
-    .filter((entry) => entry.score !== null && entry.score >= threshold)
+    .filter((entry) => {
+      if (entry.score === null) return false;
+      const bar = entry.candidate.kind === "pack_candidate" ? DEFAULTS.suggestThreshold : threshold;
+      return entry.score >= bar;
+    })
     .sort(
       (a, b) =>
         (b.score ?? 0) - (a.score ?? 0) ||
