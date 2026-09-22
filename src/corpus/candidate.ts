@@ -6,10 +6,12 @@ export type Candidate = {
   /** Stable id within one run, assigned after loading. */
   id: string;
   kind: CandidateKind;
-  /** Repo-relative path for learnings; pack-relative for pack items. */
+  /** Repo-relative path for learnings; `<pack-id>/<file>` for pack items. */
   path: string;
   absPath: string;
   packId: string | undefined;
+  /** Pack-relative path for pack items. */
+  packPath: string | undefined;
   frontmatter: Frontmatter;
   title: string;
   appliesWhen: string[];

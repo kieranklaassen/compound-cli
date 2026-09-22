@@ -57,6 +57,7 @@ export function readCandidate(
   path: string,
   kind: Candidate["kind"],
   packId: string | undefined,
+  packPath: string | undefined = undefined,
 ): Candidate | { error: string } {
   let raw: string;
   try {
@@ -74,6 +75,7 @@ export function readCandidate(
     path,
     absPath,
     packId,
+    packPath,
     frontmatter: parsed.data,
     title,
     appliesWhen: stringList(parsed.data.applies_when),
