@@ -178,11 +178,11 @@ describe("runFind on the fixture corpus", () => {
     });
     const top = run.result.hits[0];
     expect(top?.path).toBe("docs/solutions/http/retry-with-backoff-honoring-retry-after.md");
-    expect(top?.overlap).toBeTruthy();
+    const overlap = (top?.overlap ?? {}) as Record<string, number>;
     for (const key of ["problem", "root_cause", "solution", "files", "prevention", "overall"]) {
-      expect(typeof (top?.overlap as Record<string, number>)[key]).toBe("number");
+      expect(typeof overlap[key]).toBe("number");
     }
-    expect(top?.overlap?.overall).toBeGreaterThan(0.5);
+    expect(overlap.overall).toBeGreaterThan(0.5);
   });
 
   test("a repo with no solutions directory and no packs is a missing corpus", async () => {
