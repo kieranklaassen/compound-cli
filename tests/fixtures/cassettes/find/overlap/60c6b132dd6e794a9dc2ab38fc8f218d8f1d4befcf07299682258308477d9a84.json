@@ -1,0 +1,37 @@
+{
+  "request_hash": "60c6b132dd6e794a9dc2ab38fc8f218d8f1d4befcf07299682258308477d9a84",
+  "status": 200,
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "problem": {
+        "type": "noul",
+        "noul": 0.93
+      },
+      "root_cause": {
+        "type": "noul",
+        "noul": 0.86
+      },
+      "solution": {
+        "type": "noul",
+        "noul": 0.72
+      },
+      "files": {
+        "type": "noul",
+        "noul": 0.55
+      },
+      "prevention": {
+        "type": "noul",
+        "noul": 0.16
+      }
+    },
+    "usage": {
+      "input_tokens": 1114,
+      "output_tokens": 88
+    }
+  },
+  "meta": {
+    "model": "jev-latest",
+    "question_count": 5
+  }
+}

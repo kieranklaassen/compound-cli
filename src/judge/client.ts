@@ -25,7 +25,7 @@ export type Judge = {
   readonly model: string;
   readonly usage: UsageTracker;
   /** Ask every question about one state, batching under the request budget. Fails whole: no partial answers. */
-  ask(state: EntryType, questions: Questions): Promise<Answers>;
+  ask(state: unknown, questions: Questions): Promise<Answers>;
 };
 
 export type JudgeOptions = {
@@ -72,7 +72,11 @@ export function createJudge(options: JudgeOptions): Judge {
               if (question) subset[key] = question;
             }
             try {
-              const result = await client.systemOne({ state, questions: subset, model });
+              const result = await client.systemOne({
+                state: state as EntryType,
+                questions: subset,
+                model,
+              });
               usage.record(result);
               return result.answers as Answers;
             } catch (error) {
