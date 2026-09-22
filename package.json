@@ -20,10 +20,11 @@
   ],
   "type": "module",
   "bin": {
-    "compound-cli": "dist/cli.js",
-    "compound": "dist/cli.js"
+    "compound-cli": "bin/compound.js",
+    "compound": "bin/compound.js"
   },
   "files": [
+    "bin",
     "dist",
     "bench/cases",
     "README.md",

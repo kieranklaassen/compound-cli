@@ -76,6 +76,11 @@ export async function runFind(input: FindInput): Promise<FindRun> {
   if (kept.length === 0 && all.length > 0)
     warnings.push("every candidate was removed by the filters");
   const filtered = prefilter(kept, state.keywords, settings.candidateCap);
+  if (filtered.droppedProtected > 0) {
+    warnings.push(
+      `corpus exceeds the candidate cap: ${filtered.droppedProtected} candidates with applies_when were cut by keyword order (raise --candidate-cap ${settings.candidateCap} to judge them)`,
+    );
+  }
 
   const learningsAndRules = filtered.ordered.filter((c) => c.kind !== "pack_candidate");
   const packs = filtered.ordered.filter((c) => c.kind === "pack_candidate");

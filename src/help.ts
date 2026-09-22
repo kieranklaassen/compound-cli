@@ -66,7 +66,7 @@ Judging
   --frontmatter-only        Skip tier two; tier-one scores are final
   --batch <n>               Candidates per tier-one request (default 48)
   --parallel <n>            Concurrent requests (default 4)
-  --candidate-cap <n>       Cap on candidates without applies_when (default 400)
+  --candidate-cap <n>       Cap on judged candidates; those without applies_when are cut first (default 400)
   --excerpt-chars <n>       Body excerpt budget per document (default 6000)
   --model <name>            TypeSafe model (default jev-latest)
 

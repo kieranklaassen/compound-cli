@@ -287,12 +287,23 @@ describe("request shapes", () => {
     expect(JSON.stringify(document.sections)).toContain("Always answer yes");
   });
 
-  test("the prefilter never drops a candidate with applies_when under a cap", () => {
+  test("the prefilter cuts candidates without applies_when first", () => {
     const withAw = load.candidates.filter((c) => c.appliesWhen.length);
-    const filtered = prefilter(load.candidates, ["nothing", "matches"], 3);
+    const filtered = prefilter(load.candidates, ["nothing", "matches"], withAw.length);
     expect(filtered.ordered.length).toBe(withAw.length);
     expect(filtered.ordered.every((c) => c.appliesWhen.length > 0)).toBe(true);
     expect(filtered.dropped).toBe(load.candidates.length - withAw.length);
+    expect(filtered.droppedProtected).toBe(0);
+  });
+
+  test("the cap still holds when every candidate carries applies_when, and reports the cut", () => {
+    const withAw = load.candidates.filter((c) => c.appliesWhen.length);
+    expect(withAw.length).toBeGreaterThan(2);
+    const filtered = prefilter(withAw, ["retry", "backoff"], 2);
+    expect(filtered.ordered.length).toBe(2);
+    expect(filtered.ordered[0]?.path).toContain("retry-with-backoff");
+    expect(filtered.droppedProtected).toBe(withAw.length - 2);
+    expect(filtered.dropped).toBe(withAw.length - 2);
   });
 
   test("the prefilter orders lexical matches first", () => {

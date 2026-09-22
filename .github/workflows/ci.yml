@@ -21,8 +21,9 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint
       - run: bun test
+      - run: bun bin/compound.js --help
       - run: bun run build
-      - run: node dist/cli.js --help
+      - run: node bin/compound.js --help
 
   bench:
     name: Bench replay on the public gold set

@@ -52,12 +52,16 @@ export type Prefiltered = {
   ordered: Candidate[];
   scores: Map<Candidate, LexicalScore>;
   dropped: number;
+  /** Candidates with applies_when that the cap still had to cut, weakest keyword match first. */
+  droppedProtected: number;
 };
 
 /**
- * Order candidates strongest-first and bound the set. A candidate that
- * carries applies_when is never dropped (plan KTD9); when the corpus exceeds
- * the cap, only candidates without applies_when are cut, weakest first.
+ * Order candidates strongest-first and bound the set. Candidates without
+ * applies_when go first, weakest first (plan KTD9). When the candidates that
+ * carry applies_when alone exceed the cap, the cap still holds: cost must not
+ * scale with corpus size unbounded, so the weakest of them are cut too and the
+ * caller is told how many, so it can raise the cap.
  */
 export function prefilter(
   candidates: Candidate[],
@@ -73,8 +77,8 @@ export function prefilter(
     if (aw !== 0) return aw;
     return a.path.localeCompare(b.path);
   });
-  if (ordered.length <= cap) return { ordered, scores, dropped: 0 };
-  const protectedOnes = ordered.filter(hasAppliesWhen);
+  if (ordered.length <= cap) return { ordered, scores, dropped: 0, droppedProtected: 0 };
+  const protectedOnes = ordered.filter(hasAppliesWhen).slice(0, cap);
   const room = Math.max(0, cap - protectedOnes.length);
   const others = ordered.filter((c) => !hasAppliesWhen(c)).slice(0, room);
   const keep = new Set([...protectedOnes, ...others]);
@@ -82,5 +86,6 @@ export function prefilter(
     ordered: ordered.filter((c) => keep.has(c)),
     scores,
     dropped: ordered.length - keep.size,
+    droppedProtected: ordered.filter(hasAppliesWhen).length - protectedOnes.length,
   };
 }
