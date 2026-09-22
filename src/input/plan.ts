@@ -31,7 +31,11 @@ export function readPlan(path: string): PlanSummary {
       sectionText(body, /^#{2,3}\s+(Goal Capsule|Objective)\b/m) ??
       firstParagraph(body),
     requirements: matches(body, /^\s*-\s+R\d+\.\s+(.+)$/gm, MAX_REQUIREMENTS),
-    decisions: matches(body, /^\s*-\s+(?:KTD\d+\.\s+)?\*\*(.+?)\*\*/gm, MAX_DECISIONS),
+    decisions: matches(
+      sectionText(body, /^#{2,3}\s+Key (?:Technical )?Decisions\b/m) ?? "",
+      /^\s*-\s+(?:KTD\d+\.\s+)?\*\*(.+?)\*\*/gm,
+      MAX_DECISIONS,
+    ),
   };
 }
 
