@@ -23,6 +23,7 @@ Commands
 
 Global options
   --root <dir>   Repository root (default: the enclosing git checkout)
+  --debug        Print the stack trace when a command fails
   --help, -h     Show help for a command
 
 Environment
@@ -81,7 +82,6 @@ Output
   --json                    Structured output (schema_version 1)
   --compact                 One tab-separated row per hit, then a # trailer
   --root <dir>              Repository root
-  --debug                   Print stack traces on failure
 
 Exit codes: 0 success (hits or nothing_relevant), 2 usage, 3 not configured,
 4 missing corpus, 5 judge failure, 1 internal.
@@ -92,7 +92,7 @@ export const PACKS_HELP = `compound packs: declared and suggested Compound Packs
 Usage
   compound packs resolve [--json]        Roots for the declared packs (packs-resolve.py shape)
   compound packs list [--json]           Declared packs with their rules
-  compound packs suggest [activity] [--concept ...] [--json] [--refresh] [--no-sources]
+  compound packs suggest [activity] [--concept ...] [--json] [--refresh]
                                          Undeclared packs whose README matches the work or repo
   compound packs add <id> [--yes]        Append the packs: entry for a suggested pack
 

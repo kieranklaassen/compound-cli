@@ -15,3 +15,4 @@ First release.
 - `packs resolve` and `packs list` with the semantics and JSON shape of the plugin's `packs-resolve.py`, sharing its git cache. `packs suggest` judges undeclared packs from known sources; `packs add` writes the declaration.
 - `bench` runs a gold set and reports macro and micro recall, a precision lower bound, negative correctness, cost, and latency, with a threshold sweep. The public gold set from the Compound Engineering plugin's learnings ships with recorded cassettes so CI runs without a key.
 - `doctor` reports key presence, corpus health, pack drift, and source reachability.
+- Document text (titles, headings, bodies) only ever reaches the judge as state, never inside a question or a choice label, so a pack author cannot steer the judgment from inside a document. A failed batch aborts its siblings so a judge failure never keeps billing. Symlinks that leave the repository or a pack source are refused on every read path.

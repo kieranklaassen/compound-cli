@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { appendPackEntry, renderEntry } from "../src/commands/packs-add.ts";
 import { loadCeConfig } from "../src/config/ce-config.ts";
-import { createGitCache } from "../src/corpus/git-cache.ts";
+import { cacheKey, createGitCache } from "../src/corpus/git-cache.ts";
 import type { Workspace } from "../src/corpus/load.ts";
 import {
   EVERY_SOURCE,
@@ -213,11 +213,10 @@ describe("packs add", () => {
       join(CORPUS, ".compound-engineering", "config.local.yaml"),
       join(root, ".compound-engineering", "config.local.yaml"),
     );
-    const env = {
-      HOME: EMPTY_HOME,
-      CE_PACKS_CACHE_ROOT: mkdtempSync(join(tmpdir(), "compound-cli-cache-")),
-      CE_PACKS_GIT_TIMEOUT: "5",
-    };
+    // The built-in git source counts as cached and empty, so the test never reaches the network.
+    const cacheRoot = mkdtempSync(join(tmpdir(), "compound-cli-cache-"));
+    mkdirSync(join(cacheRoot, cacheKey(EVERY_SOURCE, "main"), "packs"), { recursive: true });
+    const env = { HOME: EMPTY_HOME, CE_PACKS_CACHE_ROOT: cacheRoot };
 
     const refused = await runCli(["packs", "add", "second-pack", "--root", root], { env });
     expect(refused.code).toBe(2);
@@ -228,10 +227,60 @@ describe("packs add", () => {
     expect(unknown.stderr).toContain("second-pack");
 
     const written = await runCli(["packs", "add", "second-pack", "--yes", "--root", root], { env });
+    expect(written.stderr).toBe("");
     expect(written.code).toBe(0);
     expect(readFileSync(path, "utf8")).toContain("  - source: packs\n    pack: second-pack\n");
 
     const again = await runCli(["packs", "add", "second-pack", "--yes", "--root", root], { env });
     expect(again.stdout).toContain("already declared");
   }, 60_000);
+});
+
+describe("packs suggest command", () => {
+  const cacheRoot = mkdtempSync(join(tmpdir(), "compound-cli-cache-"));
+  mkdirSync(join(cacheRoot, cacheKey(EVERY_SOURCE, "main"), "packs"), { recursive: true });
+  const env = {
+    HOME: EMPTY_HOME,
+    CE_PACKS_CACHE_ROOT: cacheRoot,
+    COMPOUND_CASSETTE_MODE: "replay",
+    COMPOUND_CASSETTE_DIR: resolve(import.meta.dir, "fixtures/cassettes/suggest"),
+  };
+
+  test("--json lists the undeclared pack with its declaration when the work matches", async () => {
+    const result = await runCli(
+      [
+        "packs",
+        "suggest",
+        "Decide whether to cancel a customer's separate add-on subscription now that the new bundle covers it",
+        "--json",
+        "--root",
+        CORPUS,
+      ],
+      { env },
+    );
+    expect(result.stderr).toBe("");
+    expect(result.code).toBe(0);
+    const json = JSON.parse(result.stdout);
+    expect(json.mode).toBe("suggest");
+    expect(json.declared).toEqual(["local-rules"]);
+    expect(json.considered).toEqual([{ pack_id: "second-pack", score: expect.any(Number) }]);
+    expect(json.suggestions[0]).toMatchObject({
+      pack_id: "second-pack",
+      declaration: { source: "packs", pack: "second-pack" },
+    });
+    expect(json.suggestions[0].score).toBeGreaterThan(0.5);
+    expect(json.repository).toBeNull();
+  });
+
+  test("without a work context the repository profile is judged and the text output carries the declaration", async () => {
+    const result = await runCli(["packs", "suggest", "--root", CORPUS], { env });
+    expect(result.stderr).not.toContain("error");
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/considered|second-pack/);
+    const json = await runCli(["packs", "suggest", "--json", "--root", CORPUS], { env });
+    const parsed = JSON.parse(json.stdout);
+    expect(parsed.state).toBeNull();
+    expect(parsed.repository.repository).toBe("corpus");
+    expect(parsed.repository.top_level).toEqual(["docs/", "packs/"]);
+  });
 });

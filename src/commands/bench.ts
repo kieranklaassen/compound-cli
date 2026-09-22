@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
   HELP_OPTION,
@@ -13,6 +13,7 @@ import {
   type BenchReport,
   type CaseRun,
   type CaseScore,
+  floorFailures,
   latencyStats,
   scoreCase,
 } from "../bench/score.ts";
@@ -20,13 +21,13 @@ import type { CeConfig } from "../config/ce-config.ts";
 import type { Context } from "../context.ts";
 import { createGitCache } from "../corpus/git-cache.ts";
 import { loadCorpus, type Workspace } from "../corpus/load.ts";
-import { JudgeError, UsageError } from "../errors.ts";
+import { MissingCorpusError, UsageError } from "../errors.ts";
 import { EXIT } from "../exit-codes.ts";
 import { NO_FILTERS } from "../find/filters.ts";
-import { runFind } from "../find/find.ts";
+import { type JudgeSettings, runFind } from "../find/find.ts";
 import { BENCH_HELP } from "../help.ts";
 import { buildWorkState } from "../input/work-state.ts";
-import { cassetteMode } from "../judge/api-key.ts";
+import { CASSETTE_DIR_VARIABLE, cassetteMode } from "../judge/api-key.ts";
 import { judgeFromEnv } from "../judge/client.ts";
 import { resolveJudgeSettings } from "./find-options.ts";
 
@@ -75,8 +76,21 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   if (cases.length === 0) throw new UsageError("no cases selected");
 
   const corpus = loadCorpus(workspace);
+  const corpusPaths = new Set([
+    ...corpus.learnings.candidates.map((c) => c.path),
+    ...corpus.packRules.candidates.map((c) => c.path),
+  ]);
   const runs: CaseRun[] = [];
   const warnings = new Set<string>(corpus.warnings);
+  const mode = cassetteMode(ctx.env);
+  const manifest = readManifest(ctx, mode);
+  const thresholdDrift =
+    manifest !== undefined && mode === "replay" && manifest.threshold !== settings.threshold;
+  if (thresholdDrift) {
+    warnings.add(
+      `cassettes were recorded at threshold ${manifest.threshold}; this run scores at ${settings.threshold} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
+    );
+  }
   for (const benchCase of cases) {
     const before = judge.usage.snapshot();
     const started = performance.now();
@@ -94,6 +108,7 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     const caseRun: CaseRun = {
       benchCase,
       run,
+      corpusPaths,
       wall_ms: Math.round(performance.now() - started),
       requests: after.requests - before.requests,
       input_tokens: after.input_tokens - before.input_tokens,
@@ -130,9 +145,10 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
       pack_rules: corpus.packRules.candidates.length,
     },
     model: usage.model,
-    cassette_mode: cassetteMode(ctx.env),
+    cassette_mode: mode,
     warnings: [...warnings],
   };
+  if (mode === "record") writeManifest(ctx, settings, report.model);
 
   if (v.out) {
     const outPath = resolve(ctx.cwd, v.out);
@@ -142,12 +158,17 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   if (v.json) ctx.stdout(`${JSON.stringify(report, null, 2)}\n`);
   else ctx.stdout(renderBench(report));
 
-  const floor = file.floor?.macro_recall;
-  if (v["enforce-floor"] && floor !== undefined && (report.aggregate.macro_recall ?? 0) < floor) {
-    ctx.stderr(
-      `compound bench: macro recall ${report.aggregate.macro_recall} is below the floor ${floor}\n`,
-    );
-    return EXIT.INTERNAL;
+  if (v["enforce-floor"]) {
+    const failures = floorFailures(report.aggregate, file.floor ?? {});
+    if (thresholdDrift) {
+      failures.push(
+        `threshold ${settings.threshold} differs from the recorded ${manifest.threshold}`,
+      );
+    }
+    if (failures.length) {
+      for (const failure of failures) ctx.stderr(`compound bench: ${failure}\n`);
+      return EXIT.INTERNAL;
+    }
   }
   return EXIT.OK;
 }
@@ -171,10 +192,7 @@ function benchWorkspace(
   } else if (file.corpus) {
     const warnings: string[] = [];
     const dir = git.clone(file.corpus.git, file.corpus.ref, `corpus ${file.name}`, warnings);
-    if (!dir)
-      throw new JudgeError(
-        `cannot fetch the bench corpus: ${warnings.join("; ") || "unknown error"}`,
-      );
+    if (!dir) throw new MissingCorpusError(`${file.corpus.git}@${file.corpus.ref}`, warnings);
     repoRoot = dir;
   } else {
     throw new UsageError("the cases file has no corpus block; pass --root <checkout>");
@@ -281,4 +299,47 @@ function renderMiss(score: CaseScore): string[] {
 
 function pct(value: number | null): string {
   return value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
+}
+
+type Manifest = {
+  recorded_at: string;
+  threshold: number;
+  tier_one_threshold: number;
+  model_requested: string;
+  model_answered: string | null;
+};
+
+/**
+ * Recorded answers do not depend on the threshold, so a replay would stay green
+ * after a threshold change; the manifest pins the threshold the recording was
+ * scored at so `--enforce-floor` can notice.
+ */
+function manifestPath(ctx: Context): string | undefined {
+  const dir = ctx.env[CASSETTE_DIR_VARIABLE]?.trim();
+  return dir ? resolve(ctx.cwd, dir, "manifest.json") : undefined;
+}
+
+function readManifest(ctx: Context, mode: string): Manifest | undefined {
+  if (mode === "off") return undefined;
+  const path = manifestPath(ctx);
+  if (!path) return undefined;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Manifest;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeManifest(ctx: Context, settings: JudgeSettings, model: string | null): void {
+  const path = manifestPath(ctx);
+  if (!path) return;
+  const manifest: Manifest = {
+    recorded_at: new Date().toISOString(),
+    threshold: settings.threshold,
+    tier_one_threshold: settings.tierOneThreshold,
+    model_requested: settings.model,
+    model_answered: model,
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
 }

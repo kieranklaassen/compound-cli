@@ -9,6 +9,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -23,6 +24,8 @@ import type { Env } from "../context.ts";
 export type GitCache = {
   base: string | undefined;
   which: () => boolean;
+  /** True when a clone of this url and ref failed recently; callers skip the retry with a warning. */
+  recentlyFailed: (url: string, ref: string) => boolean;
   cachedDir: (url: string, ref: string) => string | undefined;
   clone: (url: string, ref: string, label: string, warnings: string[]) => string | undefined;
   evict: (url: string, ref: string) => void;
@@ -31,6 +34,8 @@ export type GitCache = {
 };
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
+/** A failed clone is not retried for this long, so an unreachable source costs one timeout, not one per run. */
+const FAILURE_COOLDOWN_MS = 60 * 60 * 1000;
 
 /** `CE_PACKS_GIT_TIMEOUT` wins; otherwise the caller's default, otherwise 60 seconds. */
 export function createGitCache(
@@ -63,6 +68,15 @@ export function createGitCache(
       const dest = join(base, cacheKey(url, ref));
       return trustedCheckout(dest) ? dest : undefined;
     },
+    recentlyFailed(url, ref) {
+      if (base === undefined) return false;
+      try {
+        const age = Date.now() - statSync(failureMarker(base, url, ref)).mtimeMs;
+        return age < FAILURE_COOLDOWN_MS;
+      } catch {
+        return false;
+      }
+    },
     clone(url, ref, label, warnings) {
       if (!cache.which()) {
         warnings.push(`${label}: git binary not found; source skipped`);
@@ -72,72 +86,88 @@ export function createGitCache(
         warnings.push(`${label}: no writable cache root for git sources; source skipped`);
         return undefined;
       }
-      const dest = join(base, cacheKey(url, ref));
-      if (existsSync(dest) || isLink(dest)) {
-        if (trustedCheckout(dest)) return dest;
-        warnings.push(
-          `${label}: cached checkout ${dest} is a symlink or not owned by this user; refetching`,
-        );
-        rmSync(dest, { recursive: true, force: true });
-        if (existsSync(dest) || isLink(dest)) {
-          warnings.push(
-            `${label}: cannot replace untrusted cached checkout ${dest}; source skipped`,
-          );
-          return undefined;
+      const root = base;
+      const dest = join(root, cacheKey(url, ref));
+      const result = cloneInto(dest);
+      if (result === undefined) {
+        try {
+          writeFileSync(failureMarker(root, url, ref), `${new Date().toISOString()}\n`);
+        } catch {
+          // The marker is an optimization; a cache root we cannot write to is already warned about.
         }
+      } else {
+        rmSync(failureMarker(root, url, ref), { force: true });
       }
-      const tmp = mkdtempSync(join(base, `${cacheKey(url, ref)}.part-`));
-      try {
-        const cloned = git([
-          "clone",
-          "--quiet",
-          "--depth",
-          "1",
-          "--no-recurse-submodules",
-          "--branch",
-          ref,
-          "--end-of-options",
-          url,
-          tmp,
-        ]);
-        if (cloned.error && "code" in cloned.error && cloned.error.code === "ETIMEDOUT") {
-          warnings.push(`${label}: git clone timed out after ${timeoutSeconds}s; source skipped`);
-          return undefined;
-        }
-        if (cloned.status !== 0) {
-          // A tag or branch clone failed; retry treating the ref as a commit sha.
-          const fetched =
-            git(["init", "--quiet", tmp]).status === 0 &&
-            git(["fetch", "--quiet", "--depth", "1", "--end-of-options", url, ref], tmp).status ===
-              0 &&
-            git(["checkout", "--quiet", "FETCH_HEAD"], tmp).status === 0;
-          if (!fetched) {
-            warnings.push(`${label}: cannot fetch \`${ref}\` from ${url}; source skipped`);
+      return result;
+
+      function cloneInto(dest: string): string | undefined {
+        if (existsSync(dest) || isLink(dest)) {
+          if (trustedCheckout(dest)) return dest;
+          warnings.push(
+            `${label}: cached checkout ${dest} is a symlink or not owned by this user; refetching`,
+          );
+          rmSync(dest, { recursive: true, force: true });
+          if (existsSync(dest) || isLink(dest)) {
+            warnings.push(
+              `${label}: cannot replace untrusted cached checkout ${dest}; source skipped`,
+            );
             return undefined;
           }
         }
-        if (!existsSync(dest)) {
-          try {
-            renameSync(tmp, dest);
-          } catch {
-            if (!existsSync(dest)) {
-              warnings.push(`${label}: could not publish the clone to ${dest}; source skipped`);
+        const tmp = mkdtempSync(join(root, `${cacheKey(url, ref)}.part-`));
+        try {
+          const cloned = git([
+            "clone",
+            "--quiet",
+            "--depth",
+            "1",
+            "--no-recurse-submodules",
+            "--branch",
+            ref,
+            "--end-of-options",
+            url,
+            tmp,
+          ]);
+          if (cloned.error && "code" in cloned.error && cloned.error.code === "ETIMEDOUT") {
+            warnings.push(`${label}: git clone timed out after ${timeoutSeconds}s; source skipped`);
+            return undefined;
+          }
+          if (cloned.status !== 0) {
+            // A tag or branch clone failed; retry treating the ref as a commit sha.
+            const fetched =
+              git(["init", "--quiet", tmp]).status === 0 &&
+              git(["fetch", "--quiet", "--depth", "1", "--end-of-options", url, ref], tmp)
+                .status === 0 &&
+              git(["checkout", "--quiet", "FETCH_HEAD"], tmp).status === 0;
+            if (!fetched) {
+              warnings.push(`${label}: cannot fetch \`${ref}\` from ${url}; source skipped`);
               return undefined;
             }
           }
+          if (!existsSync(dest)) {
+            try {
+              renameSync(tmp, dest);
+            } catch {
+              if (!existsSync(dest)) {
+                warnings.push(`${label}: could not publish the clone to ${dest}; source skipped`);
+                return undefined;
+              }
+            }
+          }
+          if (trustedCheckout(dest)) return dest;
+          warnings.push(
+            `${label}: cached checkout ${dest} is a symlink or not owned by this user; source skipped`,
+          );
+          return undefined;
+        } finally {
+          rmSync(tmp, { recursive: true, force: true });
         }
-        if (trustedCheckout(dest)) return dest;
-        warnings.push(
-          `${label}: cached checkout ${dest} is a symlink or not owned by this user; source skipped`,
-        );
-        return undefined;
-      } finally {
-        rmSync(tmp, { recursive: true, force: true });
       }
     },
     evict(url, ref) {
       if (base === undefined) return;
       rmSync(join(base, cacheKey(url, ref)), { recursive: true, force: true });
+      rmSync(failureMarker(base, url, ref), { force: true });
     },
     lsRemote(url, ref) {
       const result = git(["ls-remote", "--end-of-options", url, ref, `${ref}^{}`]);
@@ -160,6 +190,10 @@ export function cacheKey(url: string, ref: string): string {
   return createHash("sha256").update(`${url}\n${ref}`).digest("hex");
 }
 
+function failureMarker(base: string, url: string, ref: string): string {
+  return join(base, `${cacheKey(url, ref)}.failed`);
+}
+
 export function isGitUrl(source: string): boolean {
   return /^(https?|ssh|git|file):\/\//.test(source) || /^[\w.-]+@[\w.-]+:/.test(source);
 }
@@ -178,8 +212,12 @@ function cacheBase(env: Env): string | undefined {
   const configured = env.CE_PACKS_CACHE_ROOT;
   if (configured) {
     const root = resolve(configured);
-    mkdirSync(root, { recursive: true });
-    return root;
+    try {
+      mkdirSync(root, { recursive: true });
+      return root;
+    } catch {
+      return undefined;
+    }
   }
   if (process.platform === "win32") {
     const root = join(env.LOCALAPPDATA || tmpdir(), "compound-engineering-packs");

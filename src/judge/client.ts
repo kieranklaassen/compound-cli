@@ -1,5 +1,6 @@
 import {
   APIError,
+  APIUserAbortError,
   type ChoiceResponse,
   type EntryType,
   type Fetch,
@@ -38,12 +39,17 @@ export type JudgeOptions = {
   retry?: Partial<RetryPolicy>;
 };
 
-/** Retries: six attempts on 408, 429, and 5xx (529 included), honoring Retry-After. */
+/**
+ * One attempt plus six retries on 408, 429, and 5xx (529 included). Retry-After
+ * is honored up to the same cap as the local backoff, so a throttling server
+ * cannot park a request for a minute at a time.
+ */
 const RETRY: Partial<RetryPolicy> = {
   maxRetries: 6,
   backoffInitialMs: 400,
   backoffMaxMs: 20_000,
   respectRetryAfter: true,
+  maxRetryAfterMs: 20_000,
 };
 
 export function createJudge(options: JudgeOptions): Judge {
@@ -64,6 +70,9 @@ export function createJudge(options: JudgeOptions): Judge {
     usage,
     async ask(state, questions) {
       const batches = planBatches(state, questions);
+      // One failure aborts the siblings: no partial answers, and no spending
+      // on judgments the caller will never see (plan R29).
+      const controller = new AbortController();
       const results = await Promise.all(
         batches.map((keys) =>
           semaphore.run(async () => {
@@ -73,17 +82,18 @@ export function createJudge(options: JudgeOptions): Judge {
               if (question) subset[key] = question;
             }
             try {
-              const result = await client.systemOne({
-                state: state as EntryType,
-                questions: subset,
-                model,
-              });
+              const result = await client.systemOne(
+                { state: state as EntryType, questions: subset, model },
+                { signal: controller.signal },
+              );
               usage.record(result);
               return result.answers as Answers;
             } catch (error) {
-              throw toJudgeError(error);
+              const judgeError = toJudgeError(error);
+              if (!controller.signal.aborted) controller.abort(judgeError);
+              throw judgeError;
             }
-          }),
+          }, controller.signal),
         ),
       );
       const merged: Answers = {};
@@ -127,6 +137,7 @@ export function judgeFromEnv(
 
 function toJudgeError(error: unknown): JudgeError {
   if (error instanceof JudgeError) return error;
+  if (error instanceof APIUserAbortError && error.cause instanceof JudgeError) return error.cause;
   if (error instanceof APIError) {
     const body = error.body;
     if (
@@ -134,9 +145,9 @@ function toJudgeError(error: unknown): JudgeError {
       typeof body === "object" &&
       (body as { error?: unknown }).error === CASSETTE_MISS_MARKER
     ) {
-      const miss = body as { hash: string; dir: string };
+      const miss = body as { hash: string; dir: string; reason?: string };
       return new JudgeError(
-        `cassette replay miss: no recording ${miss.hash} in ${miss.dir} (re-record with COMPOUND_CASSETTE_MODE=record)`,
+        `cassette replay miss: ${miss.reason ?? "no recording"} ${miss.hash} in ${miss.dir} (re-record with COMPOUND_CASSETTE_MODE=record)`,
         { status: error.status, cause: error },
       );
     }

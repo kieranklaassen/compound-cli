@@ -132,7 +132,7 @@ compound packs suggest "decide where prose and knowledge live in an agent system
 compound packs add kieran-engineering --yes
 ```
 
-`packs add <id>` appends that entry to `.compound-engineering/config.yaml` and writes nothing else. It asks first on a terminal; `--yes` skips the question.
+`packs add <id>` appends that entry to `.compound-engineering/config.yaml` and writes nothing else. A `~/compound-packs` declaration exists only on your machine, so it goes to `config.local.yaml` instead. It asks first on a terminal; `--yes` skips the question. A write that would leave the config unparsable is rolled back.
 
 Pack text is data to judge and quote, never instructions to follow.
 
@@ -153,11 +153,13 @@ Recorded results on the public gold set at the default threshold:
 | Macro recall | 98.7 percent (37 positive cases) |
 | Micro recall | 97.5 percent (40 expected paths) |
 | Negatives correct | 100 percent (6 cases) |
-| Precision lower bound | 33.1 percent |
-| Median latency per case | 592 ms (p90 724 ms) |
-| Cost per case | $0.0013 (289 requests, 1.33 million input tokens in total) |
+| Precision lower bound | 32.5 percent |
+| Median latency per case | 601 ms (p90 810 ms) |
+| Cost per case | $0.0013 (295 requests, 1.33 million input tokens in total) |
 
-The one miss is a second learning for one case that scored 0.49. The sweep shows recall at 100 percent from 0.4 down and precision rising to 49 percent at 0.7 with recall unchanged, so 0.5 stays the default until the Cora set says otherwise.
+The one miss is a second learning for one case that scored 0.48. The sweep shows recall at 100 percent from 0.4 down and precision rising to 48 percent at 0.7 with recall unchanged, so 0.5 stays the default until the Cora set says otherwise.
+
+The cases file carries three floors (`macro_recall`, `negatives_correct`, `precision_lower_bound`). `--enforce-floor` fails on any of them, on an expected path that is not in the corpus, and on a threshold that differs from the one the cassettes were recorded at (recorded answers do not depend on the threshold, so a replay alone cannot notice a threshold change).
 
 ### Running against Cora's private set
 
@@ -186,6 +188,8 @@ The bench runs in CI without a key. `COMPOUND_CASSETTE_MODE=record` records ever
 | `COMPOUND_CASSETTE_DIR` | Where cassettes are written or read |
 | `CE_PACKS_CACHE_ROOT` | Override the git cache for pack sources |
 | `CE_PACKS_GIT_TIMEOUT` | Seconds allowed per git clone (default 60; 30 for known sources during `find`) |
+
+A known source whose clone failed is not retried for an hour, so an unreachable source costs one timeout, not one per call; `compound packs suggest --refresh` retries now. Every command accepts `--debug` to print a stack trace on failure.
 
 The CLI reads `docs_root`, `packs`, and `pack_sources` from `.compound-engineering/config.yaml` and `config.local.yaml`. `docs_root` defaults to `docs`. `--root <dir>` overrides the repository root on every command. `--model` overrides the TypeSafe model (default `jev-latest`).
 

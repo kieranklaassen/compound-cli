@@ -5,6 +5,8 @@ import type { BenchCase } from "./cases.ts";
 export type CaseRun = {
   benchCase: BenchCase;
   run: FindRun;
+  /** Every path the corpus loaded, so a labeling error means "not in the corpus", never "not judged". */
+  corpusPaths: ReadonlySet<string>;
   wall_ms: number;
   requests: number;
   input_tokens: number;
@@ -33,6 +35,30 @@ export type CaseScore = {
   input_tokens: number;
   estimated_usd: number;
 };
+
+export type Floors = {
+  macro_recall?: number;
+  negatives_correct?: number;
+  precision_lower_bound?: number;
+};
+
+/** Every floor the aggregate fails, as "name value < floor" lines. */
+export function floorFailures(aggregate: Aggregate, floors: Floors): string[] {
+  const failures: string[] = [];
+  for (const key of ["macro_recall", "negatives_correct", "precision_lower_bound"] as const) {
+    const floor = floors[key];
+    if (floor === undefined) continue;
+    const value = aggregate[key] ?? 0;
+    if (value < floor)
+      failures.push(`${key.replaceAll("_", " ")} ${value} is below the floor ${floor}`);
+  }
+  if (aggregate.labeling_errors > 0) {
+    failures.push(
+      `${aggregate.labeling_errors} expected path(s) are not in the corpus (labeling errors fail the gate)`,
+    );
+  }
+  return failures;
+}
 
 export type Aggregate = {
   threshold: number;
@@ -65,9 +91,8 @@ export type BenchReport = {
 /** Score one case at a threshold from the judgments already made. */
 export function scoreCase(caseRun: CaseRun, threshold: number): CaseScore {
   const { benchCase, run } = caseRun;
-  const scoredPaths = new Set(run.scored.map((s) => s.candidate.path));
-  const unknown = benchCase.expected.filter((p) => !scoredPaths.has(p));
-  const expected = benchCase.expected.filter((p) => scoredPaths.has(p));
+  const unknown = benchCase.expected.filter((p) => !caseRun.corpusPaths.has(p));
+  const expected = benchCase.expected.filter((p) => caseRun.corpusPaths.has(p));
   const ranked = [...run.scored].sort((a, b) => effective(b) - effective(a));
   const hits = ranked
     .filter((s) => s.score !== null && s.score >= threshold)

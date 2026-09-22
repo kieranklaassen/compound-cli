@@ -26,9 +26,12 @@ export class NotConfiguredError extends CliError {
 }
 
 export class MissingCorpusError extends CliError {
-  constructor(root: string) {
+  constructor(root: string, packErrors: readonly string[] = []) {
+    const detail = packErrors.length
+      ? ` (declared packs failed to resolve: ${packErrors.join("; ")})`
+      : "";
     super(
-      `missing corpus: no learnings under ${root}/solutions/ and no declared packs`,
+      `missing corpus: no learnings under ${root}/solutions/ and no resolvable packs${detail}`,
       EXIT.MISSING_CORPUS,
     );
   }

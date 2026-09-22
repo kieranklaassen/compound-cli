@@ -30,7 +30,7 @@ export type CasesFile = {
   name: string;
   description?: string;
   corpus: BenchCorpus | null;
-  floor?: { macro_recall?: number };
+  floor?: { macro_recall?: number; negatives_correct?: number; precision_lower_bound?: number };
   cases: BenchCase[];
 };
 

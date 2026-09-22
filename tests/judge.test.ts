@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { choice, type Fetch, noul, type Questions } from "@typesafe-ai/sdk";
@@ -17,8 +17,10 @@ type Recorded = {
   auth: string | null;
 };
 
+type ServerOptions = { delayMs?: number; omitKey?: string; wrongTypeKey?: string };
+
 /** A fake TypeSafe server: records every request and answers each noul with 0.75. */
-function fakeServer(statuses: number[] = []) {
+function fakeServer(statuses: number[] = [], options: ServerOptions = {}) {
   const requests: Recorded[] = [];
   let inFlight = 0;
   let peak = 0;
@@ -28,7 +30,13 @@ function fakeServer(statuses: number[] = []) {
     requests.push({ body, auth: headers.get("authorization") });
     inFlight++;
     peak = Math.max(peak, inFlight);
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, options.delayMs ?? 5);
+      init?.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(init.signal?.reason ?? new Error("aborted"));
+      });
+    });
     inFlight--;
     const status = statuses.shift() ?? 200;
     if (status !== 200) {
@@ -39,7 +47,8 @@ function fakeServer(statuses: number[] = []) {
     }
     const answers: Record<string, unknown> = {};
     for (const [key, question] of Object.entries(body.questions)) {
-      const type = (question as { type: string }).type;
+      if (key === options.omitKey) continue;
+      const type = key === options.wrongTypeKey ? "choice" : (question as { type: string }).type;
       answers[key] =
         type === "choice"
           ? { type: "choice", choice: "a", confidence: 0.9, probabilities: { a: 0.9, b: 0.1 } }
@@ -152,6 +161,31 @@ describe("createJudge", () => {
     const judge = createJudge({ apiKey: KEY, fetch: server.fetch, parallel: 1, retry: FAST_RETRY });
     await expect(judge.ask({}, nouls(250))).rejects.toThrow(/HTTP 400/);
   });
+
+  test("a failing batch aborts its siblings instead of letting them run and bill", async () => {
+    // Eight batches, two slots: the first request fails at once, the second is
+    // in flight, and the remaining six must never be sent.
+    const server = fakeServer([400], { delayMs: 40 });
+    const judge = createJudge({ apiKey: KEY, fetch: server.fetch, parallel: 2, retry: FAST_RETRY });
+    const started = performance.now();
+    await expect(judge.ask({}, nouls(1600))).rejects.toThrow(/HTTP 400/);
+    expect(performance.now() - started).toBeLessThan(200);
+    expect(server.requests.length).toBeLessThanOrEqual(2);
+    expect(judge.usage.snapshot().requests).toBe(0);
+  });
+
+  test("an answer set missing a key is a judge failure, not a zero score", async () => {
+    const server = fakeServer([], { omitKey: "q1" });
+    const judge = createJudge({ apiKey: KEY, fetch: server.fetch, retry: FAST_RETRY });
+    await expect(judge.ask({}, nouls(3))).rejects.toThrow(/answered without q1/);
+  });
+
+  test("a wrongly typed answer is rejected by noulOf", async () => {
+    const server = fakeServer([], { wrongTypeKey: "q0" });
+    const judge = createJudge({ apiKey: KEY, fetch: server.fetch, retry: FAST_RETRY });
+    const answers = await judge.ask({}, nouls(2));
+    expect(() => noulOf(answers, "q0")).toThrow(/expected a noul answer/);
+  });
 });
 
 describe("cassettes", () => {
@@ -183,6 +217,18 @@ describe("cassettes", () => {
     });
     const replayed = await replayer.ask({ s: 1 }, nouls(250));
     expect(replayed).toEqual(recorded);
+  });
+
+  test("a corrupted cassette is reported as an unreadable recording, not a network error", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "compound-cli-cassette-"));
+    const hash = requestHash({ model: "jev-latest", state: { s: 1 }, questions: nouls(1) });
+    writeFileSync(join(dir, `${hash}.json`), "{ not json");
+    const judge = createJudge({
+      apiKey: "x",
+      fetch: cassetteFetch("replay", dir),
+      retry: { maxRetries: 0 },
+    });
+    await expect(judge.ask({ s: 1 }, nouls(1))).rejects.toThrow(/unreadable recording/);
   });
 
   test("a replay miss is a judge failure naming the hash", async () => {

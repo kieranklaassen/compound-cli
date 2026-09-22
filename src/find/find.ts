@@ -1,10 +1,12 @@
+import type { CeConfig } from "../config/ce-config.ts";
 import type { Candidate, CandidateLoad } from "../corpus/candidate.ts";
 import { type CorpusLoad, loadCorpus, type Workspace } from "../corpus/load.ts";
+import type { PacksResolution } from "../corpus/packs.ts";
 import { MissingCorpusError } from "../errors.ts";
-import { judgeState, type WorkState } from "../input/work-state.ts";
+import { assertWorkFits, judgeState, type WorkState } from "../input/work-state.ts";
 import type { Judge } from "../judge/client.ts";
 import type { JudgeWork } from "../judge/questions.ts";
-import { round4 } from "../util.ts";
+import { errorMessage, round4 } from "../util.ts";
 import { applyFilters, type CandidateFilters } from "./filters.ts";
 import { judgeOverlap } from "./overlap.ts";
 import { prefilter } from "./prefilter.ts";
@@ -51,10 +53,13 @@ export async function runFind(input: FindInput): Promise<FindRun> {
   const { workspace, state, judge, settings, filters, mode } = input;
   const corpus = input.corpus ?? loadCorpus(workspace);
   const warnings = [...corpus.warnings];
-  const declaredIds = new Set(corpus.packs.roots.map((root) => root.id));
-  const packCandidates = input.loadPackCandidates
-    ? input.loadPackCandidates(workspace, declaredIds)
-    : { candidates: [], warnings: [] };
+  const work: JudgeWork = judgeState(state);
+  assertWorkFits(work);
+  // Overlap compares a draft with existing documents; a pack README is not one of those.
+  const packCandidates =
+    input.loadPackCandidates && mode !== "overlap"
+      ? input.loadPackCandidates(workspace, declaredPackIds(workspace.config, corpus.packs))
+      : { candidates: [], warnings: [] };
   warnings.push(...packCandidates.warnings);
 
   const all: Candidate[] = [
@@ -62,26 +67,24 @@ export async function runFind(input: FindInput): Promise<FindRun> {
     ...corpus.packRules.candidates,
     ...packCandidates.candidates,
   ];
-  if (
-    !corpus.learnings.exists &&
-    corpus.learnings.candidates.length === 0 &&
-    corpus.packRules.candidates.length === 0 &&
-    corpus.packs.roots.length === 0
-  ) {
-    throw new MissingCorpusError(workspace.config.docsRoot);
+  if (all.length === 0 && !corpus.learnings.exists && corpus.packs.roots.length === 0) {
+    throw new MissingCorpusError(workspace.config.docsRoot, corpus.packs.errors);
   }
 
   const { kept, filteredOut } = applyFilters(all, filters);
   if (kept.length === 0 && all.length > 0)
     warnings.push("every candidate was removed by the filters");
   const filtered = prefilter(kept, state.keywords, settings.candidateCap);
-  const work: JudgeWork = judgeState(state);
 
   const learningsAndRules = filtered.ordered.filter((c) => c.kind !== "pack_candidate");
   const packs = filtered.ordered.filter((c) => c.kind === "pack_candidate");
   const [tierOne, packScores] = await Promise.all([
     judgeTierOne(judge, work, learningsAndRules, { batch: settings.batch }),
-    judgePackCandidates(judge, work, packs, settings.batch),
+    // Pack suggestions are optional extras: their failure must not take the recall down with it.
+    judgePackCandidates(judge, work, packs, settings.batch).catch((error: unknown) => {
+      warnings.push(`pack candidates were not judged: ${errorMessage(error)}`);
+      return new Map<Candidate, number>();
+    }),
   ]);
 
   const scored: ScoredCandidate[] = filtered.ordered.map((candidate) => {
@@ -138,7 +141,9 @@ export async function runFind(input: FindInput): Promise<FindRun> {
   }
 
   const hits = buildHits(scored, settings.threshold);
-  const bestScore = Math.max(0, ...scored.map((e) => e.score ?? e.tierOneScore));
+  // The gate is the strongest confirmed score (plan KTD10); a tier-one score that
+  // never earned a body read is not confirmation.
+  const bestScore = Math.max(0, ...scored.map((e) => e.score ?? 0));
   const run: FindRun = {
     scored,
     result: {
@@ -168,6 +173,21 @@ export async function runFind(input: FindInput): Promise<FindRun> {
     },
   };
   return run;
+}
+
+/**
+ * Pack ids the repo has declared, whether or not they resolved this run: a
+ * declared pack whose clone failed must not come back as a suggestion.
+ */
+export function declaredPackIds(config: CeConfig, resolution: PacksResolution): Set<string> {
+  const ids = new Set(resolution.roots.map((root) => root.id));
+  for (const entry of config.packs) {
+    if (entry.id) ids.add(entry.id);
+    const selected =
+      entry.pack === undefined ? [] : Array.isArray(entry.pack) ? entry.pack : [entry.pack];
+    for (const id of selected) ids.add(id);
+  }
+  return ids;
 }
 
 /** Hits are the scored candidates at or above the threshold, strongest first. */

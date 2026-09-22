@@ -49,7 +49,6 @@ export const FIND_OPTIONS = {
   tag: { type: "string", multiple: true },
   pack: { type: "string", multiple: true },
   "no-sources": { type: "boolean" },
-  debug: { type: "boolean" },
 } as const satisfies OptionSpecs;
 
 export type FindOptions = {

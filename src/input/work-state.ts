@@ -54,7 +54,17 @@ export const CHANNEL_HINT =
 export async function buildWorkState(input: ChannelInput, ctx: Context): Promise<WorkState> {
   if (!hasAnyChannel(input)) throw new UsageError(CHANNEL_HINT);
   const diff =
-    input.diffPath === undefined ? null : parseUnifiedDiff(await readDiff(input.diffPath, ctx));
+    input.diffPath === undefined
+      ? null
+      : nonEmptyDiff(parseUnifiedDiff(await readDiff(input.diffPath, ctx)));
+  if (
+    diff === null &&
+    input.diffPath !== undefined &&
+    !hasAnyChannel({ ...input, diffPath: undefined })
+  ) {
+    const where = input.diffPath === "-" ? "stdin" : input.diffPath;
+    throw new UsageError(`the diff from ${where} is empty; ${CHANNEL_HINT}`);
+  }
   const plan = input.planPath === undefined ? null : readOrUsage(input.planPath, readPlan);
   const doc = input.docPath === undefined ? null : readOrUsage(input.docPath, readDoc);
   const clean = (list: string[]) => list.map((s) => s.trim()).filter(Boolean);
@@ -84,6 +94,23 @@ export async function buildWorkState(input: ChannelInput, ctx: Context): Promise
     ...(doc ? [doc.title, ...doc.applies_when, ...doc.tags, doc.excerpt] : []),
   );
   return state;
+}
+
+/** A diff with no files, hunks, or content carries no work context. */
+function nonEmptyDiff(diff: DiffSummary): DiffSummary | null {
+  return diff.files.length || diff.hunks.length || diff.excerpt ? diff : null;
+}
+
+/** Jev reads the state once per request; a work context this large leaves no room for candidates. */
+export const MAX_WORK_TOKENS = 24_000;
+
+export function assertWorkFits(work: Record<string, unknown>): void {
+  const tokens = Math.ceil(JSON.stringify(work).length / 3);
+  if (tokens > MAX_WORK_TOKENS) {
+    throw new UsageError(
+      `the work context is about ${tokens} tokens; the limit is ${MAX_WORK_TOKENS}. Trim the --diff or --plan input or pass fewer paths`,
+    );
+  }
 }
 
 async function readDiff(path: string, ctx: Context): Promise<string> {

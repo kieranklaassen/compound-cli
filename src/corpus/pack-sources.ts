@@ -2,11 +2,11 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { CeConfig } from "../config/ce-config.ts";
 import type { Env } from "../context.ts";
-import { homeDir } from "../util.ts";
+import { errorMessage, homeDir } from "../util.ts";
 import type { Candidate, CandidateLoad } from "./candidate.ts";
 import { createGitCache, type GitCache, isGitUrl } from "./git-cache.ts";
 import { readCandidate } from "./learnings.ts";
-import { enumeratePacks, expandHome, isKnowledgeText } from "./packs.ts";
+import { enumeratePacks, escapingLinks, expandHome, isKnowledgeText } from "./packs.ts";
 
 export type KnownSource = {
   label: string;
@@ -83,11 +83,20 @@ export function loadPackCandidates(
     const { dir, boundary } = located;
     for (const [id, packDir] of enumeratePacks(dir, boundary, [])) {
       if (declaredIds.has(id) || seen.has(id)) continue;
+      // The same refusal the declared-packs path applies: nothing in a pack may
+      // link outside its source, README included.
+      if (escapingLinks(packDir, boundary).length) {
+        warnings.push(
+          `${source.label} source ${source.source}: pack \`${id}\` skipped (link(s) outside the source)`,
+        );
+        continue;
+      }
       const readme = join(packDir, "README.md");
       let raw: string;
       try {
         raw = readFileSync(readme, "utf8");
-      } catch {
+      } catch (error) {
+        warnings.push(`skipped ${id}/README.md from ${source.source}: ${errorMessage(error)}`);
         continue;
       }
       if (!isKnowledgeText(raw)) continue;
@@ -131,6 +140,12 @@ function locate(
   const ref = source.ref ?? "main";
   if (policy === "refresh") git.evict(source.source, ref);
   let checkout = git.cachedDir(source.source, ref);
+  if (!checkout && policy === "cached-or-clone" && git.recentlyFailed(source.source, ref)) {
+    warnings.push(
+      `${label}: clone failed recently; skipped (run \`compound packs suggest --refresh\` to retry now)`,
+    );
+    return undefined;
+  }
   if (!checkout && policy !== "cached-only")
     checkout = git.clone(source.source, ref, label, warnings);
   if (!checkout) {

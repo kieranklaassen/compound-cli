@@ -1,0 +1,31 @@
+{
+  "request_hash": "d94192fa587a2ba8e6f52e93b9b986f0d99e6d2c5c3b0b4752b1c04ada9f0b64",
+  "status": 200,
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "relevant": {
+        "type": "noul",
+        "noul": 0.41
+      },
+      "where": {
+        "type": "choice",
+        "choice": "s00",
+        "confidence": 0.72,
+        "probabilities": {
+          "s02": 0,
+          "s00": 0.82,
+          "s01": 0.18
+        }
+      }
+    },
+    "usage": {
+      "input_tokens": 1396,
+      "output_tokens": 64
+    }
+  },
+  "meta": {
+    "model": "jev-latest",
+    "question_count": 2
+  }
+}

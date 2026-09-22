@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Fetch } from "@typesafe-ai/sdk";
+import { errorMessage } from "../util.ts";
 import type { CassetteMode } from "./api-key.ts";
 
 export const CASSETTE_MISS_MARKER = "compound-cli cassette miss";
@@ -35,7 +36,20 @@ export function cassetteFetch(
           headers: { "content-type": "application/json" },
         });
       }
-      const stored = JSON.parse(readFileSync(file, "utf8")) as CassetteFile;
+      let stored: CassetteFile;
+      try {
+        stored = JSON.parse(readFileSync(file, "utf8")) as CassetteFile;
+      } catch (error) {
+        return new Response(
+          JSON.stringify({
+            error: CASSETTE_MISS_MARKER,
+            hash,
+            dir,
+            reason: `unreadable recording: ${errorMessage(error)}`,
+          }),
+          { status: 404, headers: { "content-type": "application/json" } },
+        );
+      }
       return new Response(JSON.stringify(stored.body), {
         status: stored.status,
         headers: { "content-type": "application/json" },

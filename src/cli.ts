@@ -29,9 +29,10 @@ export async function main(argv: string[], ctx: Context = processContext()): Pro
     return EXIT.USAGE;
   }
   const debug = rest.includes("--debug");
+  const args = rest.filter((arg) => arg !== "--debug");
   try {
     const module = await loader();
-    return await module.run(rest, ctx);
+    return await module.run(args, ctx);
   } catch (error) {
     if (error instanceof CliError) {
       ctx.stderr(`compound: ${error.message}\n`);

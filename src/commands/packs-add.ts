@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { HELP_OPTION, type OptionSpecs, parseCommandArgs, ROOT_OPTION } from "../args.ts";
@@ -7,8 +7,9 @@ import type { Context } from "../context.ts";
 import { openWorkspace } from "../corpus/load.ts";
 import { loadPackCandidates } from "../corpus/pack-sources.ts";
 import { resolvePacks } from "../corpus/packs.ts";
-import { UsageError } from "../errors.ts";
+import { CliError, UsageError } from "../errors.ts";
 import { EXIT } from "../exit-codes.ts";
+import { declaredPackIds } from "../find/find.ts";
 import { PACKS_HELP } from "../help.ts";
 
 const ADD_OPTIONS = {
@@ -28,7 +29,7 @@ export async function runAdd(argv: string[], ctx: Context): Promise<number> {
     throw new UsageError("packs add takes exactly one pack id");
   const workspace = openWorkspace(ctx.cwd, ctx.env, parsed.values.root);
   const resolution = resolvePacks(workspace.config, workspace.git);
-  const declared = new Set(resolution.roots.map((r) => r.id));
+  const declared = declaredPackIds(workspace.config, resolution);
   if (declared.has(id)) {
     ctx.stdout(`pack ${id} is already declared; nothing written\n`);
     return EXIT.OK;
@@ -45,7 +46,10 @@ export async function runAdd(argv: string[], ctx: Context): Promise<number> {
     throw new UsageError(`no known source publishes an undeclared pack "${id}" (known: ${known})`);
   }
   const entry = renderEntry(candidate.declaration);
-  const configPath = join(workspace.repoRoot, CONFIG_DIR, "config.yaml");
+  // A `~/...` source exists only on this machine: it belongs in the personal
+  // layer, never in the config the team commits.
+  const layer = candidate.declaration.source?.startsWith("~") ? "config.local.yaml" : "config.yaml";
+  const configPath = join(workspace.repoRoot, CONFIG_DIR, layer);
   ctx.stdout(`Will append to ${configPath}:\n\npacks:\n${entry}\n`);
   if (!parsed.values.yes) {
     if (!ctx.isTTY) throw new UsageError("pass --yes to write without confirmation");
@@ -73,8 +77,18 @@ export function renderEntry(declaration: Record<string, string>, indent = "  "):
     .join("\n");
 }
 
+/**
+ * Plain scalars only for values YAML reads back as the same string; anything
+ * that starts with a reserved indicator or types as null, boolean, or number
+ * is quoted.
+ */
 function yamlScalar(value: string): string {
-  return /^[A-Za-z0-9_./~:@-]+$/.test(value) ? value : JSON.stringify(value);
+  const plain = /^(~\/)?[A-Za-z0-9_][A-Za-z0-9_./:-]*$/.test(value);
+  const typed =
+    /^(~|null|true|false|yes|no|on|off|[-+]?(\d[\d_]*\.?\d*|\.\d+)(e[-+]?\d+)?|0x[0-9a-f]+|0o[0-7]+|\.inf|\.nan)$/i.test(
+      value,
+    );
+  return plain && !typed ? value : JSON.stringify(value);
 }
 
 /**
@@ -87,7 +101,13 @@ export function appendPackEntry(configPath: string, entry: string): boolean {
   const existing = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
   if (existing.includes(entry.trim())) return false;
   const lines = existing === "" ? [] : existing.split(/\r?\n/);
-  const packsIndex = lines.findIndex((line) => /^packs:\s*(#.*)?$/.test(line));
+  // `packs:` may already hold an inline empty value (`[]`, `~`, `null`); rewrite
+  // that line to a bare key so the block list below it is the one declaration.
+  const packsIndex = lines.findIndex((line) => /^packs:\s*(\[\s*\]|~|null)?\s*(#.*)?$/i.test(line));
+  if (packsIndex !== -1) {
+    const comment = (lines[packsIndex] ?? "").match(/\s(#.*)$/)?.[1];
+    lines[packsIndex] = comment ? `packs: ${comment}` : "packs:";
+  }
   let output: string[];
   if (packsIndex === -1) {
     output = [...trimTrailingBlank(lines)];
@@ -116,8 +136,16 @@ export function appendPackEntry(configPath: string, entry: string): boolean {
   mkdirSync(dirname(configPath), { recursive: true });
   const text = output.join("\n");
   writeFileSync(configPath, text.endsWith("\n") ? text : `${text}\n`);
-  // Confirm the result still parses as a packs list.
-  loadCeConfig(dirname(dirname(configPath)));
+  // Never leave a config that no longer parses: restore the original and fail.
+  const check = loadCeConfig(dirname(dirname(configPath)));
+  if (check.errors.length) {
+    if (existing === "") rmSync(configPath, { force: true });
+    else writeFileSync(configPath, existing);
+    throw new CliError(
+      `refusing to leave an unparsable config: ${check.errors[0]}; ${configPath} restored`,
+      EXIT.INTERNAL,
+    );
+  }
   return true;
 }
 

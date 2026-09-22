@@ -5,8 +5,10 @@ import type { Section } from "../find/sections.ts";
 /**
  * Every question the CLI asks Jev, in one place. Wording follows jegrep's lean
  * form: criteria are stated once in the state and each question refers to the
- * candidate's tag. Candidate text is always data under `state`, never part of
- * an instruction (plan KTD19).
+ * candidate by its tag. Candidate text (titles, headings, bodies) is always
+ * data under `state`, never part of an instruction or a Choice label (plan
+ * KTD19): a pack author must not be able to steer the judge from inside a
+ * document.
  */
 
 export type JudgeWork = Record<string, unknown>;
@@ -38,24 +40,34 @@ const KIND_LABELS: Record<CandidateKind, string> = {
   pack_candidate: "pack",
 };
 
+/** Bounds on what one candidate contributes to a shared state, so no document can crowd out the batch. */
+const VIEW_LIMITS = { title: 300, listItems: 8, listItemChars: 300, scalar: 120 };
+
 export function frontmatterView(candidate: Candidate): Record<string, unknown> {
   const fm = candidate.frontmatter;
   const view: Record<string, unknown> = {
-    path: candidate.path,
+    path: candidate.path.slice(0, VIEW_LIMITS.title),
     kind: KIND_LABELS[candidate.kind],
-    title: candidate.title,
+    title: candidate.title.slice(0, VIEW_LIMITS.title),
   };
-  if (candidate.packId) view.pack = candidate.packId;
-  if (candidate.appliesWhen.length) view.applies_when = candidate.appliesWhen;
-  if (candidate.tags.length) view.tags = candidate.tags;
+  if (candidate.packId) view.pack = candidate.packId.slice(0, VIEW_LIMITS.scalar);
+  if (candidate.appliesWhen.length) view.applies_when = boundedList(candidate.appliesWhen);
+  if (candidate.tags.length) view.tags = boundedList(candidate.tags);
   for (const key of ["module", "problem_type", "component", "record_type"] as const) {
     const value = stringField(fm[key]);
-    if (value !== undefined) view[key] = value;
+    if (value !== undefined) view[key] = value.slice(0, VIEW_LIMITS.scalar);
   }
   const symptoms = fm.symptoms;
-  if (Array.isArray(symptoms) && symptoms.length)
-    view.symptoms = symptoms.filter((s) => typeof s === "string");
+  if (Array.isArray(symptoms) && symptoms.length) {
+    view.symptoms = boundedList(symptoms.filter((s): s is string => typeof s === "string"));
+  }
   return view;
+}
+
+function boundedList(items: string[]): string[] {
+  return items
+    .slice(0, VIEW_LIMITS.listItems)
+    .map((item) => item.slice(0, VIEW_LIMITS.listItemChars));
 }
 
 export function tierOneRequest(
@@ -69,14 +81,13 @@ export function tierOneRequest(
     const tag = candidateTag(index);
     tags.set(tag, candidate);
     candidates[tag] = frontmatterView(candidate);
-    const title = JSON.stringify(candidate.title);
     questions[tag] =
       candidate.kind === "pack_candidate"
         ? noul(
-            `Should the pack tagged ${tag} (${title}) be adopted for the work in \`work\`? Its \`applies_when\` lists the situations that call for the pack; apply \`criteria.adopt\`.`,
+            `Should the pack tagged ${tag} be adopted for the work in \`work\`? Judge it from \`candidates.${tag}\`: its \`applies_when\` lists the situations that call for the pack; apply \`criteria.adopt\`.`,
           )
         : noul(
-            `Does the item tagged ${tag} (${title}) apply to the work in \`work\`? Judge by its \`applies_when\`, title, tags, module, and problem type; apply \`criteria.applies\`.`,
+            `Does the item tagged ${tag} apply to the work in \`work\`? Judge it from \`candidates.${tag}\`: its \`applies_when\`, title, tags, module, and problem type; apply \`criteria.applies\`.`,
           );
   });
   return {
@@ -108,11 +119,12 @@ export function tierTwoRequest(
       lines: `${section.startLine}-${section.endLine}`,
       text: section.text,
     };
-    where[tag] = section.heading;
+    where[tag] =
+      `the section tagged ${tag} (its heading and text are under \`document.sections.${tag}\`)`;
   });
   const questions: Questions = {
     relevant: noul(
-      `Does the document in \`document\` (${JSON.stringify(candidate.title)}) apply to the work in \`work\`?`,
+      "Does the document in `document` apply to the work in `work`? Read its sections under `document.sections`.",
       {
         true: "The document's problem, rule, or decision bears on this work: knowing it would change what the person does or checks.",
         false:

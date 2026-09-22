@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { errorMessage } from "../util.ts";
 import { type Candidate, stringList } from "./candidate.ts";
 import { documentTitle, isFrontmatterError, parseFrontmatter } from "./frontmatter.ts";
@@ -23,6 +23,17 @@ export function loadLearnings(repoRoot: string, docsRootAbs: string): LearningsL
     exists: existsSync(solutionsDir),
   };
   if (!load.exists) return load;
+  // A cloned repo can commit `docs/solutions` as a symlink to an absolute path;
+  // learnings are read only from inside the repository.
+  const repoReal = realpathSync(repoRoot);
+  const real = realpathSync(solutionsDir);
+  if (real !== repoReal && !real.startsWith(repoReal + sep)) {
+    load.warnings.push(
+      `skipped ${relative(repoRoot, solutionsDir)}: resolves outside the repository`,
+    );
+    load.exists = false;
+    return load;
+  }
   for (const absPath of walkMarkdown(solutionsDir)) {
     const path = relative(repoRoot, absPath).replaceAll("\\", "/");
     const candidate = readCandidate(absPath, path, "solution", undefined);

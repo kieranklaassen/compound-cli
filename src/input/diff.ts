@@ -9,6 +9,7 @@ export type DiffSummary = {
 
 const EXCERPT_LINES = 80;
 const EXCERPT_CHARS = 4000;
+const MAX_FILES = 200;
 
 const SYMBOL_PATTERNS = [
   /\b(?:export\s+)?(?:default\s+)?(?:async\s+)?function\*?\s+([A-Za-z_$][\w$]*)/,
@@ -53,21 +54,25 @@ export function parseUnifiedDiff(text: string): DiffSummary {
   const excerpt: string[] = [];
   let added = 0;
   let removed = 0;
+  // `---`/`+++` are file headers only between a `diff --git` line and its first
+  // hunk; inside a hunk they are removed or added content (SQL comments, say).
+  let inHunk = false;
   for (const line of text.split(/\r?\n/)) {
     const gitHeader = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
     if (gitHeader) {
       addPath(files, gitHeader[2] ?? gitHeader[1]);
+      inHunk = false;
       continue;
     }
-    const plusHeader = line.match(/^\+\+\+ (?:b\/)?(.+)$/);
-    if (plusHeader && plusHeader[1] !== "/dev/null") {
-      addPath(files, plusHeader[1]);
-      continue;
-    }
-    if (line.startsWith("--- ")) continue;
     const hunk = line.match(/^@@[^@]*@@\s*(.*)$/);
     if (hunk) {
       if (hunk[1]) hunks.push(hunk[1].trim());
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) {
+      const plusHeader = line.match(/^\+\+\+ (?:b\/)?(.+)$/);
+      if (plusHeader && plusHeader[1] !== "/dev/null") addPath(files, plusHeader[1]);
       continue;
     }
     if (line.startsWith("+") || line.startsWith("-")) {
@@ -81,8 +86,12 @@ export function parseUnifiedDiff(text: string): DiffSummary {
       if (excerpt.length < EXCERPT_LINES && content.trim()) excerpt.push(line.trimEnd());
     }
   }
+  const allFiles = [...files];
   return {
-    files: [...files],
+    files:
+      allFiles.length > MAX_FILES
+        ? [...allFiles.slice(0, MAX_FILES), `[... ${allFiles.length - MAX_FILES} more files]`]
+        : allFiles,
     symbols: [...symbols].slice(0, 60),
     hunks: hunks.slice(0, 40),
     added_lines: added,

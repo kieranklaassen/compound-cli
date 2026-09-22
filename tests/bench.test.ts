@@ -56,6 +56,7 @@ function caseRun(
   return {
     benchCase: { id, query: { activity: id }, expected, ...(negative ? { negative: true } : {}) },
     run: fakeRun(entries),
+    corpusPaths: new Set(["p1", "p2", "p3"]),
     wall_ms: 500,
     requests: 3,
     input_tokens: 4000,

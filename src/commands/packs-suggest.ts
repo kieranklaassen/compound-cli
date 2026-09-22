@@ -5,6 +5,7 @@ import { openWorkspace } from "../corpus/load.ts";
 import { type FetchPolicy, loadPackCandidates } from "../corpus/pack-sources.ts";
 import { resolvePacks } from "../corpus/packs.ts";
 import { EXIT } from "../exit-codes.ts";
+import { declaredPackIds } from "../find/find.ts";
 import { SCHEMA_VERSION } from "../find/result.ts";
 import { judgePackCandidates } from "../find/tier-one.ts";
 import { PACKS_HELP } from "../help.ts";
@@ -48,7 +49,7 @@ export async function runSuggest(argv: string[], ctx: Context): Promise<number> 
   const judge = judgeFromEnv(ctx.env, { model, parallel });
   const workspace = openWorkspace(ctx.cwd, ctx.env, v.root);
   const resolution = resolvePacks(workspace.config, workspace.git);
-  const declared = new Set(resolution.roots.map((r) => r.id));
+  const declared = declaredPackIds(workspace.config, resolution);
   const policy: FetchPolicy = v.refresh ? "refresh" : "cached-or-clone";
   const load = loadPackCandidates(workspace.config, declared, ctx.env, policy);
   const warnings = [...resolution.warnings, ...load.warnings];

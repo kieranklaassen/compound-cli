@@ -15,6 +15,8 @@ export type PackRoot = {
   ref?: string;
   /** Config label, kept off the public JSON. */
   label: string;
+  /** The realpath every rule must stay within (the checkout, the repo, or the source itself). */
+  boundary: string;
 };
 
 export type PacksResolution = {
@@ -60,7 +62,7 @@ export function resolvePacks(config: CeConfig, git: GitCache): PacksResolution {
 /** The public JSON shape, identical to packs-resolve.py's output. */
 export function publicResolution(resolution: PacksResolution) {
   return {
-    roots: resolution.roots.map(({ label: _label, ...root }) => root),
+    roots: resolution.roots.map(({ label: _label, boundary: _boundary, ...root }) => root),
     warnings: resolution.warnings,
     errors: resolution.errors,
     entries: resolution.entries,
@@ -255,6 +257,7 @@ function resolveEntry(
       dir: packDir,
       nested_rule_shaped: nestedRuleShaped(packDir, boundary).total,
       label,
+      boundary,
     };
     if (gitMeta) {
       root.url = gitMeta.url;
@@ -392,11 +395,12 @@ export function loadPackRules(roots: PackRoot[]): CandidateLoad {
   const candidates: Candidate[] = [];
   const warnings: string[] = [];
   for (const root of roots) {
-    for (const file of containedMdFiles(root.dir, root.dir, [])) {
+    for (const file of containedMdFiles(root.dir, root.boundary, [])) {
       let raw: string;
       try {
         raw = readFileSync(file, "utf8");
-      } catch {
+      } catch (error) {
+        warnings.push(`skipped ${root.id}/${basename(file)}: ${errorMessage(error)}`);
         continue;
       }
       if (!isKnowledgeText(raw)) continue;

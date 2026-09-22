@@ -7,8 +7,18 @@ export class Semaphore {
     if (!Number.isInteger(limit) || limit < 1) throw new RangeError("semaphore limit must be >= 1");
   }
 
-  async run<T>(task: () => Promise<T>): Promise<T> {
+  /**
+   * Run `task` when a slot frees. A task woken after `signal` aborted is not
+   * started: once one batch has failed, its siblings must not keep spending.
+   */
+  async run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     if (this.active >= this.limit) await new Promise<void>((wake) => this.waiting.push(wake));
+    if (signal?.aborted) {
+      this.waiting.shift()?.();
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error(String(signal.reason ?? "aborted"));
+    }
     this.active += 1;
     try {
       return await task();
