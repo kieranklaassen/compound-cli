@@ -28,7 +28,7 @@ Global options
 
 Environment
   TYPESAFE_API_KEY          Required by find, packs suggest, and bench
-  COMPOUND_CASSETTE_MODE    off (default) | record | replay
+  COMPOUND_CASSETTE_MODE    off (default) | record | replay | auto
   COMPOUND_CASSETTE_DIR     Where cassettes are written or read
   CE_PACKS_CACHE_ROOT       Override the git cache for pack sources
   CE_PACKS_GIT_TIMEOUT      Seconds allowed per git clone (default 60)
@@ -53,7 +53,7 @@ Input channels (at least one)
   --module <text>           Repeatable. Modules the work changes
   --path <file>             Repeatable. Changed file paths
   --diff <file|->           Unified diff to read (- for stdin)
-  --plan <file>             Unified plan or brainstorm to read
+  --plan <file>             Unified plan or brainstorm to read (the judge reads up to 8000 chars of it)
   --doc <file>              Draft learning to read (required with --overlap)
 
 Modes
@@ -61,7 +61,7 @@ Modes
   --overlap                 Judge --doc against existing learnings on five dimensions
 
 Judging
-  --threshold <0..1>        Relevance threshold for hits (default 0.6)
+  --threshold <0..1>        Hit threshold for learnings and rules (default 0.6; 0.5 with --frontmatter-only)
   --tier-one-threshold <p>  Tier-one pass to earn a body read (default 0.3)
   --frontmatter-only        Skip tier two; tier-one scores are final
   --batch <n>               Candidates per tier-one request (default 48)
@@ -115,7 +115,7 @@ Options
   --threshold <0..1>        Relevance threshold (default 0.6)
   --sweep <p,p,...>         Re-score the same judgments at several thresholds
   --frontmatter-only        Skip tier two
-  --enforce-floor           Exit 1 when a floor in the cases file is not met
+  --enforce-floor           Exit 1 when a floor in the cases file is not met, or a replay's threshold pin is missing or differs
   --jobs <n>                Cases to run concurrently (default 1)
   --precision-floor <p>     Report the best recall whose precision lower bound meets p
   --json                    Full result as JSON

@@ -202,7 +202,8 @@ export function recallAtPrecisionFloor(runs: CaseRun[], floor: number): FlooredR
     const precision = agg.precision_lower_bound ?? 0;
     const recall = agg.micro_recall ?? 0;
     if (precision < floor) continue;
-    if (best.recall === null || recall > best.recall) {
+    // Ties resolve to the highest threshold: same recall, fewer unlabeled hits.
+    if (best.recall === null || recall >= best.recall) {
       best = {
         precision_floor: floor,
         recall,

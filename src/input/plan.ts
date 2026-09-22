@@ -11,6 +11,8 @@ export type PlanSummary = {
   decisions: string[];
   /** The plan body itself, bounded, so the judge reads the plan rather than a digest of it. */
   text: string;
+  text_chars: number;
+  text_truncated: boolean;
 };
 
 const SUMMARY_CHARS = 1500;
@@ -35,20 +37,27 @@ export function readPlan(path: string): PlanSummary {
       /^\s*-\s+(?:KTD\d+\.\s+)?\*\*(.+?)\*\*/gm,
       MAX_DECISIONS,
     ),
-    text: planText(body),
+    ...planText(body),
   };
 }
 
 /** Collapse whitespace, drop fenced code, and bound the body for the judge state. */
-function planText(body: string): string {
+function planText(body: string): Pick<PlanSummary, "text" | "text_chars" | "text_truncated"> {
   const prose = body
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return prose.length > TEXT_CHARS ? `${prose.slice(0, TEXT_CHARS)}...` : prose;
+  const truncated = prose.length > TEXT_CHARS;
+  return {
+    text: truncated ? `${prose.slice(0, TEXT_CHARS)}...` : prose,
+    text_chars: prose.length,
+    text_truncated: truncated,
+  };
 }
+
+export { TEXT_CHARS as PLAN_TEXT_CHARS };
 
 function sectionText(body: string, heading: RegExp): string | undefined {
   const start = body.search(heading);

@@ -2,7 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { readCasesFile } from "../src/bench/cases.ts";
-import { aggregate, type CaseRun, latencyStats, scoreCase } from "../src/bench/score.ts";
+import {
+  aggregate,
+  type CaseRun,
+  fBeta,
+  latencyStats,
+  recallAtPrecisionFloor,
+  scoreCase,
+} from "../src/bench/score.ts";
 import type { Candidate } from "../src/corpus/candidate.ts";
 import { UsageError } from "../src/errors.ts";
 import type { FindRun, ScoredCandidate } from "../src/find/result.ts";
@@ -187,6 +194,50 @@ describe("readCasesFile", () => {
   });
 });
 
+describe("F0.5 and recall at a precision floor", () => {
+  const runs: CaseRun[] = [
+    caseRun("a", ["p1"], [scored("p1", 0.9, 0.95), scored("p2", 0.6, 0.55)]),
+    caseRun("b", ["p2", "p3"], [scored("p2", 0.8, 0.7), scored("p3", 0.5, 0.45)]),
+    caseRun("neg", [], [scored("p1", 0.3, 0.2)], true),
+  ];
+
+  test("fBeta weighs precision over recall and handles the empty corners", () => {
+    expect(fBeta(1, 0.5)).toBeCloseTo(0.8333, 4);
+    expect(fBeta(0.5, 1)).toBeCloseTo(0.5556, 4);
+    expect(fBeta(0, 0)).toBe(0);
+    expect(fBeta(null, 1)).toBeNull();
+  });
+
+  test("the floored recall is the best recall whose precision meets the floor, ties resolving to the highest threshold", () => {
+    const loose = recallAtPrecisionFloor(runs, 0.5);
+    expect(loose.recall).toBe(1);
+    expect(loose.threshold).toBe(0.45);
+    expect(loose.precision_lower_bound).toBe(0.75);
+    // Thresholds 0.6, 0.65, and 0.7 give the same hits; the report names the highest.
+    const tight = recallAtPrecisionFloor(runs, 0.8);
+    expect(tight.recall).toBeCloseTo(2 / 3, 4);
+    expect(tight.threshold).toBe(0.7);
+    expect(tight.precision_lower_bound).toBe(1);
+    const strict = recallAtPrecisionFloor(runs, 1.01);
+    expect(strict.recall).toBeNull();
+    expect(strict.threshold).toBeNull();
+  });
+
+  test("a case whose plan or diff is not a file path is a usage error naming the case", () => {
+    const dir = tempDir("compound-cli-cases-");
+    for (const query of [{ plan: 5 }, { diff: [] }, { plan: "  " }]) {
+      const path = join(dir, "bad.json");
+      writeFileSync(
+        path,
+        JSON.stringify({ name: "t", corpus: null, cases: [{ id: "odd", query, expected: ["x"] }] }),
+      );
+      expect(() => readCasesFile(path)).toThrow(
+        /case "odd" has a "(plan|diff)" that is not a file path/,
+      );
+    }
+  });
+});
+
 describe("compound bench command", () => {
   test("runs a local cases file against --root in replay and enforces the floor", async () => {
     const dir = tempDir("compound-cli-bench-");
@@ -240,6 +291,70 @@ describe("compound bench command", () => {
     expect(report.sweep.map((s: { threshold: number }) => s.threshold)).toEqual([0.3, 0.7]);
     expect(report.corpus.solutions).toBe(7);
     expect(report.cassette_mode).toBe("replay");
+  });
+
+  test("--jobs runs cases concurrently with per-case usage, --precision-floor reports the floored recall, and the text report renders both", async () => {
+    const dir = tempDir("compound-cli-bench-");
+    const cases = join(dir, "cases.json");
+    writeFileSync(
+      cases,
+      JSON.stringify({
+        name: "fixture",
+        corpus: null,
+        cases: [
+          {
+            id: "exit-codes",
+            query: {
+              activity:
+                "Give the CLI a distinct exit code when a lookup finds nothing, so callers can tell it from a crash",
+            },
+            expected: ["docs/solutions/cli/exit-codes-for-expected-empty-results.md"],
+          },
+          {
+            id: "tls",
+            query: {
+              activity: "Rotate the TLS certificate on the load balancer before it expires",
+            },
+            expected: [],
+            negative: true,
+          },
+        ],
+      }),
+    );
+    const env = cassetteEnv(resolve(import.meta.dir, "fixtures/cassettes/bench-fixture"));
+    const args = [
+      "bench",
+      "--cases",
+      cases,
+      "--root",
+      CORPUS,
+      "--jobs",
+      "2",
+      "--precision-floor",
+      "0.9",
+    ];
+    const json = await runCli([...args, "--json"], { env });
+    expect(json.code).toBe(0);
+    const report = JSON.parse(json.stdout);
+    expect(report.cases.map((c: { id: string }) => c.id)).toEqual(["exit-codes", "tls"]);
+    expect(report.cost.requests).toBe(
+      report.cases.reduce((sum: number, c: { requests: number }) => sum + c.requests, 0),
+    );
+    expect(report.f05).toBe(1);
+    expect(report.recall_at_precision_floor.recall).toBe(1);
+    expect(report.recall_at_precision_floor.precision_lower_bound).toBe(1);
+
+    const text = await runCli(args, { env });
+    expect(text.code).toBe(0);
+    expect(text.stdout).toMatch(/f0\.5 +1\.000/);
+    expect(text.stdout).toContain("recall at precision >= 0.9: 100.0%");
+
+    const badJobs = await runCli(["bench", "--cases", cases, "--jobs", "0"], { env });
+    expect(badJobs.code).toBe(2);
+    expect(badJobs.stderr).toContain("--jobs");
+    const badFloor = await runCli(["bench", "--cases", cases, "--precision-floor", "1.5"], { env });
+    expect(badFloor.code).toBe(2);
+    expect(badFloor.stderr).toContain("--precision-floor");
   });
 
   test("a cases file without a corpus block and no --root is a usage error", async () => {

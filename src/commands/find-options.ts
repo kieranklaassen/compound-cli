@@ -117,7 +117,12 @@ export type JudgeFlagValues = {
 
 export function resolveJudgeSettings(v: JudgeFlagValues): JudgeSettings {
   return {
-    threshold: requireProbability("threshold", v.threshold, DEFAULTS.threshold),
+    // --frontmatter-only scores are tier-one probabilities, the scale pack suggestions use.
+    threshold: requireProbability(
+      "threshold",
+      v.threshold,
+      v["frontmatter-only"] ? DEFAULTS.suggestThreshold : DEFAULTS.threshold,
+    ),
     tierOneThreshold: requireProbability(
       "tier-one-threshold",
       v["tier-one-threshold"],

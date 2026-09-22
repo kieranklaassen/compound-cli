@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
   HELP_OPTION,
@@ -24,15 +24,17 @@ import type { CeConfig } from "../config/ce-config.ts";
 import type { Context } from "../context.ts";
 import { createGitCache } from "../corpus/git-cache.ts";
 import { loadCorpus, type Workspace } from "../corpus/load.ts";
-import { MissingCorpusError, UsageError } from "../errors.ts";
+import { CliError, MissingCorpusError, UsageError } from "../errors.ts";
 import { EXIT } from "../exit-codes.ts";
 import { NO_FILTERS } from "../find/filters.ts";
 import { type JudgeSettings, runFind } from "../find/find.ts";
 import { BENCH_HELP } from "../help.ts";
 import { buildWorkState } from "../input/work-state.ts";
 import { CASSETTE_DIR_VARIABLE, type CassetteMode, cassetteMode } from "../judge/api-key.ts";
+import { writeFileAtomically } from "../judge/cassette.ts";
 import { judgeFromEnv } from "../judge/client.ts";
 import { Semaphore } from "../judge/semaphore.ts";
+import { errorMessage } from "../util.ts";
 import { resolveJudgeSettings } from "./find-options.ts";
 
 const BENCH_OPTIONS = {
@@ -103,22 +105,43 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
       `${pinFailure} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
     );
   }
+  // One request gate for the whole run, so --parallel bounds in-flight requests
+  // no matter how many cases run at once; one abort, so the first failure stops
+  // every queued case instead of letting them keep judging and billing.
   const gate = new Semaphore(jobs);
+  const requests = new Semaphore(settings.parallel);
+  const stop = new AbortController();
   const total = { requests: 0, input_tokens: 0, estimated_usd: 0, model: null as string | null };
   await Promise.all(
     cases.map((benchCase, index) =>
       gate.run(async () => {
-        const judge = judgeFromEnv(ctx.env, { model: settings.model, parallel: settings.parallel });
-        const started = performance.now();
-        const run = await runFind({
-          workspace,
-          state: await buildWorkState(toChannels(benchCase, workspace.repoRoot, casesPath), ctx),
-          judge,
-          settings,
-          filters: NO_FILTERS,
-          mode: "find",
-          corpus,
+        if (stop.signal.aborted) return;
+        const judge = judgeFromEnv(ctx.env, {
+          model: settings.model,
+          parallel: settings.parallel,
+          requests,
         });
+        const started = performance.now();
+        let run: Awaited<ReturnType<typeof runFind>>;
+        try {
+          run = await runFind({
+            workspace,
+            state: await buildWorkState(toChannels(benchCase, workspace.repoRoot, casesPath), ctx),
+            judge,
+            settings,
+            filters: NO_FILTERS,
+            mode: "find",
+            corpus,
+          });
+        } catch (error) {
+          stop.abort(error);
+          if (error instanceof CliError) {
+            throw new CliError(`case "${benchCase.id}": ${error.message}`, error.exitCode, {
+              cause: error,
+            });
+          }
+          throw error;
+        }
         const usage = judge.usage.snapshot();
         for (const warning of run.result.warnings) warnings.add(warning);
         const caseRun: CaseRun = {
@@ -136,7 +159,7 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
         total.estimated_usd += usage.estimated_usd;
         total.model = usage.model ?? total.model;
         if (!v.json) ctx.stderr(`${progressLine(caseRun, settings.threshold)}\n`);
-      }),
+      }, stop.signal),
     ),
   );
 
@@ -361,29 +384,33 @@ function manifestPath(ctx: Context): string | undefined {
  * too; a missing one is not, because the run writes it.
  */
 function thresholdPinFailure(
-  manifest: Manifest | undefined,
+  manifest: Manifest | Error | undefined,
   mode: CassetteMode,
   threshold: number,
 ): string | undefined {
   if (mode !== "replay" && mode !== "auto") return undefined;
   if (manifest === undefined) {
     return mode === "replay"
-      ? "the cassettes have no readable manifest.json pinning the threshold they were recorded at"
+      ? "the cassettes have no manifest.json pinning the threshold they were recorded at"
       : undefined;
   }
+  if (manifest instanceof Error) return `${manifest.message}; re-record the cassettes`;
   if (manifest.threshold !== threshold)
     return `threshold ${threshold} differs from the recorded ${manifest.threshold}`;
   return undefined;
 }
 
-function readManifest(ctx: Context, mode: string): Manifest | undefined {
+/** `undefined` when there is no manifest; `Error` when one exists but cannot be trusted. */
+function readManifest(ctx: Context, mode: string): Manifest | Error | undefined {
   if (mode === "off") return undefined;
   const path = manifestPath(ctx);
-  if (!path) return undefined;
+  if (!path || !existsSync(path)) return undefined;
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as Manifest;
-  } catch {
-    return undefined;
+    const manifest = JSON.parse(readFileSync(path, "utf8")) as Partial<Manifest>;
+    if (typeof manifest.threshold !== "number") return new Error("manifest.json has no threshold");
+    return manifest as Manifest;
+  } catch (error) {
+    return new Error(`manifest.json is unreadable: ${errorMessage(error)}`);
   }
 }
 
@@ -398,5 +425,5 @@ function writeManifest(ctx: Context, settings: JudgeSettings, model: string | nu
     model_answered: model,
   };
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileAtomically(path, `${JSON.stringify(manifest, null, 2)}\n`);
 }

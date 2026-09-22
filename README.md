@@ -68,7 +68,7 @@ compound find --overlap --doc docs/solutions/drafts/new-learning.md --json
 ### How it judges
 
 1. The CLI normalizes every channel into one state and derives lexical keywords from all of them. The keywords only order candidates and bound the set. Candidates without `applies_when` are cut first; when the candidates that carry `applies_when` alone exceed the cap (default 400), the weakest keyword matches among them are cut too and the output says how many, so a 5,000-learning corpus costs the same as a 400-learning one until you raise `--candidate-cap`.
-2. Tier one puts up to 48 candidates' frontmatter (title, `applies_when`, tags, module, problem type, component, symptoms) in one request and asks one yes/no question per candidate. Requests run four at a time.
+2. Tier one puts up to 48 candidates' frontmatter (title, `applies_when`, tags, module, problem type, component, symptoms) plus each body's first eight section headings in one request and asks one yes/no question per candidate. Requests run four at a time. When the work has a plan, the judge reads the plan itself (up to 8,000 characters, code fences stripped), not a digest of it; a longer plan gets a warning and `state.plan.text_truncated: true`.
 3. Tier two re-judges each candidate that passed tier one with a bounded excerpt of its body on a four-level rubric (unrelated, same area only, relevant background, directly applies), normalizes the expected level to a score between 0 and 1, and picks the section that applies. That section becomes the hit's passage, with its heading and line range.
 4. A hit is any candidate whose confirmed score meets the threshold (default 0.6; "relevant background" sits at 0.67). There is no fixed result count. `--frontmatter-only` skips tier two and makes tier-one scores final. Pack suggestions are tier-one probabilities on a different scale and use their own threshold (0.5).
 
@@ -76,7 +76,7 @@ Learning and pack text is always data the judge reads, never an instruction it f
 
 ### Modes
 
-`--gate` answers "is there institutional knowledge relevant to this work" as one probability (the strongest confirmed score) with the hits behind it, for callers that only need a spawn decision.
+`--gate` answers "is there institutional knowledge relevant to this work" as one score (the strongest confirmed learning or rule score; pack suggestions never move it) with the hits behind it, for callers that only need a spawn decision.
 
 `--overlap --doc <draft>` judges a draft learning against existing learnings and pack rules on five dimensions (problem, root cause, solution, files, prevention) and returns the per-dimension scores per candidate, with the mean as the overall score.
 
@@ -124,6 +124,8 @@ Every outcome a caller switches on keeps its own code.
 | 3 | Not configured: `TYPESAFE_API_KEY` is unset |
 | 4 | Missing corpus: no `<root>/solutions/` and no declared packs |
 | 5 | Judge failure: TypeSafe failed after retries, or a cassette replay missed |
+
+Exit 1 also covers one environment case: running the `compound` bin from a git checkout under Node with no `dist/` build. The message says to use `bunx --bun` or `bun run build`.
 
 ## packs
 
@@ -213,7 +215,8 @@ Pin the version so a plugin release never picks up an untested CLI change, check
 ```bash
 if [ -n "$TYPESAFE_API_KEY" ] && command -v bunx >/dev/null 2>&1; then
   # until the npm release: bunx --bun github:kieranklaassen/compound-cli find ...
-  timeout 30 bunx compound-cli@0.1.0 find "$ACTIVITY" --concept "$CONCEPT" --json > "$RUN_DIR/recall.json"
+  # pin the version whose CHANGELOG matches the contract you read; 0.1.0 has the 0.5 yes/no score
+  timeout 30 bunx compound-cli@0.2.0 find "$ACTIVITY" --concept "$CONCEPT" ${PLAN_FILE:+--plan "$PLAN_FILE"} --json > "$RUN_DIR/recall.json"
   case $? in
     0) ;;                                  # consume recall.json; nothing_relevant is a valid answer
     *) rm -f "$RUN_DIR/recall.json" ;;     # fall back to the learnings-researcher path, say so once

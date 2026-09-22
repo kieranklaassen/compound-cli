@@ -73,7 +73,8 @@ function boundedList(items: string[]): string[] {
 /** The document's section headings, bounded: an outline of what the body covers. */
 export function bodyHeadings(body: string, limit = 8): string[] {
   const out: string[] = [];
-  for (const match of body.matchAll(/^#{2,3}\s+(.+?)\s*$/gm)) {
+  const prose = body.replace(/```[\s\S]*?```/g, "");
+  for (const match of prose.matchAll(/^#{2,3}[ \t]+(.+?)[ \t]*$/gm)) {
     const heading = (match[1] ?? "").replace(/[*_`]/g, "").trim();
     if (heading && !out.includes(heading)) out.push(heading.slice(0, 80));
     if (out.length >= limit) break;

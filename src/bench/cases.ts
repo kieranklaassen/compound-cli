@@ -60,6 +60,11 @@ export function readCasesFile(path: string): CasesFile {
     ids.add(entry.id);
     if (!entry.query || typeof entry.query !== "object")
       throw new UsageError(`${path}: case "${entry.id}" needs a "query"`);
+    for (const key of ["plan", "diff"] as const) {
+      const value = (entry.query as Record<string, unknown>)[key];
+      if (value !== undefined && (typeof value !== "string" || !value.trim()))
+        throw new UsageError(`${path}: case "${entry.id}" has a "${key}" that is not a file path`);
+    }
     if (!Array.isArray(entry.expected))
       throw new UsageError(`${path}: case "${entry.id}" needs an "expected" array`);
     if (entry.negative && entry.expected.length) {

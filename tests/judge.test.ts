@@ -229,6 +229,38 @@ describe("cassettes", () => {
     expect(replayed).toEqual(recorded);
   });
 
+  test("auto replays what it has, records what it lacks, and re-records a half-written file", async () => {
+    const dir = tempDir("compound-cli-cassette-");
+    const server = fakeServer();
+    const recorder = createJudge({
+      apiKey: KEY,
+      fetch: cassetteFetch("record", dir, server.fetch),
+      retry: FAST_RETRY,
+    });
+    const recorded = await recorder.ask({ s: 1 }, nouls(3));
+    expect(server.requests).toHaveLength(1);
+
+    const auto = createJudge({
+      apiKey: KEY,
+      fetch: cassetteFetch("auto", dir, server.fetch),
+      retry: FAST_RETRY,
+    });
+    expect(await auto.ask({ s: 1 }, nouls(3))).toEqual(recorded);
+    expect(server.requests).toHaveLength(1);
+    await auto.ask({ s: 2 }, nouls(3));
+    expect(server.requests).toHaveLength(2);
+    expect(readdirSync(dir).filter((f) => f.endsWith(".json"))).toHaveLength(2);
+    await auto.ask({ s: 2 }, nouls(3));
+    expect(server.requests).toHaveLength(2);
+
+    const hash = requestHash({ model: "jev-latest", state: { s: 2 }, questions: nouls(3) });
+    writeFileSync(join(dir, `${hash}.json`), "{ half-written");
+    await auto.ask({ s: 2 }, nouls(3));
+    expect(server.requests).toHaveLength(3);
+    expect(JSON.parse(readFileSync(join(dir, `${hash}.json`), "utf8")).request_hash).toBe(hash);
+    expect(readdirSync(dir).some((f) => f.endsWith(".tmp"))).toBe(false);
+  });
+
   test("a corrupted cassette is reported as an unreadable recording, not a network error", async () => {
     const dir = tempDir("compound-cli-cassette-");
     const hash = requestHash({ model: "jev-latest", state: { s: 1 }, questions: nouls(1) });

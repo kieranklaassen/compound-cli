@@ -451,7 +451,7 @@ describe("bench gate fidelity", () => {
       { env: { ...env, COMPOUND_CASSETTE_DIR: unpinned } },
     );
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("no readable manifest.json");
+    expect(result.stderr).toContain("no manifest.json");
   });
 
   test("auto mode writes the pin for a fresh recording and keeps an existing one", async () => {

@@ -34,6 +34,8 @@ export type JudgeOptions = {
   apiKey: string;
   model?: string;
   parallel?: number;
+  /** Share one request gate across judges so `parallel` bounds the process, not each judge. */
+  requests?: Semaphore;
   fetch?: Fetch;
   timeoutMs?: number;
   retry?: Partial<RetryPolicy>;
@@ -62,7 +64,7 @@ export function createJudge(options: JudgeOptions): Judge {
     retry: { ...RETRY, ...options.retry },
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
-  const semaphore = new Semaphore(options.parallel ?? DEFAULTS.parallel);
+  const semaphore = options.requests ?? new Semaphore(options.parallel ?? DEFAULTS.parallel);
   const usage = new UsageTracker();
 
   return {
@@ -114,7 +116,7 @@ export function createJudge(options: JudgeOptions): Judge {
 /** Build a judge from the environment: key check, cassette mode, model, parallelism. */
 export function judgeFromEnv(
   env: Env,
-  options: { model?: string; parallel?: number; fetch?: Fetch } = {},
+  options: { model?: string; parallel?: number; fetch?: Fetch; requests?: Semaphore } = {},
 ): Judge {
   const apiKey = requireApiKey(env);
   const mode = cassetteMode(env);
@@ -130,6 +132,7 @@ export function judgeFromEnv(
     apiKey,
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.parallel !== undefined ? { parallel: options.parallel } : {}),
+    ...(options.requests ? { requests: options.requests } : {}),
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
     ...(retry ? { retry } : {}),
   });

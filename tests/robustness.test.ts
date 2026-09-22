@@ -155,7 +155,9 @@ describe("corpus shapes", () => {
     expect(report.corpus.solutions).toBe(1001);
     expect(report.corpus.judged).toBe(DEFAULTS.candidateCap);
     expect(report.corpus.prefilter_dropped).toBe(1001 - DEFAULTS.candidateCap);
-    expect(report.warnings.join("\n")).toContain("raise --candidate-cap 400");
+    expect(report.warnings.join("\n")).toContain("raise --candidate-cap above 400");
+    expect(report.corpus.prefilter_dropped_protected).toBe(601);
+    expect(report.corpus.candidate_cap).toBe(400);
     // Tier one on 400 candidates is at most ceil(400 / batch) requests; the fake judge passes nothing to tier two.
     expect(judge.requests() - before).toBeLessThanOrEqual(
       Math.ceil(DEFAULTS.candidateCap / DEFAULTS.batch),
