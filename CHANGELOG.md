@@ -21,6 +21,8 @@ All notable changes to compound-cli. The format follows Keep a Changelog, and th
 - `COMPOUND_CASSETTE_MODE=auto` replays a recording when one exists and records a live answer when it does not.
 - `bench/scripts/measure-recall.ts`, the flat-JSON measurement harness an optimization loop consumes (Cora dev recall at a precision floor, a live latency probe, the public set as a regression gate).
 - Subprocess tests honor `RECORD_CASSETTES=1` through a shared `cassetteEnv` helper.
+- `bench/scripts/build-citation-gold.py` builds a citation gold set from any repository's own plans (redacted plan channel as the primary query, title and summary as the noisy variant, dev and held-out by hash). CI replays Cora's held-out split from committed answer-only cassettes when a `CORA_READ_TOKEN` secret is present.
+- Tests cover every documented option of the v1 command set end to end through the binary against a fake judge, the clean-environment and malformed-corpus robustness cases, a 1,001-learning corpus against the cap, and the bin shim from a git archive under Bun and Node.
 
 ### Fixed
 

@@ -161,14 +161,14 @@ Recorded results on the public gold set at the default threshold:
 | Macro recall | 98.7 percent (37 positive cases) |
 | Micro recall | 97.5 percent (40 expected paths) |
 | Negatives correct | 100 percent (6 cases) |
-| Precision lower bound | 29.1 percent |
-| F0.5 | 0.339 |
-| Median latency per case | about 600 ms live (p90 about 850 ms) |
-| Cost per case | $0.0013 (297 requests, 1.35 million input tokens in total) |
+| Precision lower bound | 26.7 percent |
+| F0.5 | 0.313 |
+| Median latency per case | 668 ms live (p90 949 ms) |
+| Cost per case | $0.0015 (314 requests, 1.51 million input tokens in total) |
 
-The one miss is a second learning for one case that scored 0.58. Recall is 100 percent at 0.5 and below; precision rises to 45 percent at 0.8 with recall unchanged.
+The one miss is a second learning for one case that scored 0.57. Recall is 100 percent at 0.5 and below; precision rises to 45 percent at 0.8 with recall unchanged.
 
-The defaults come from an optimization run against a private set built from Cora, where 216 plans cite 468 learnings dated before the plan. The primary metric was recall at a precision lower bound of at least 0.30 (a threshold sweep, so lowering the threshold cannot win), gated on negatives, live latency, cost per case, and this public set not regressing. Twelve experiments ran; the graded tier-two rubric and the 0.6 threshold were the two kept. On the held-out split recall at the floor went from 14.9 to 18.0 percent and macro recall at the default threshold from 38.0 to 42.9 percent at equal precision. Score fusion with tier one, a stricter yes/no wording, a body lead in tier one, one question per `applies_when` line, a higher tier-one pass, and a 12,000-character window were all measured and reverted; the run log records why.
+The defaults come from an optimization run against a private set built from Cora, where 216 plans cite 468 learnings dated before the plan, measured through the plan channel with the citation lines removed. The primary metric was recall at a precision lower bound of at least 0.30 (a threshold sweep, so lowering the threshold cannot win), paired with an operating-point rule, and gated on negatives, live latency, cost per case, and this public set not regressing. Nineteen experiments ran and four were kept: the graded tier-two rubric, the 0.6 threshold, the plan text in the channel, and the section headings in tier one. On the held-out split, live, micro recall at the default threshold went from 35.4 percent (title and summary as the query, yes/no tier two) to 63.3 percent (whole plan, graded tier two) at equal precision. Score fusion with tier one, four wordings, a body lead, one question per `applies_when` line, a lexical rescue, higher tier-one passes, a 12,000-character window, a smaller batch, and skipping tier one altogether were all measured and reverted; two learnings under `docs/solutions/tooling/` record why, and the hand-classified misses put about half of what remains down to label noise.
 
 `bench` reports F0.5 at the operating threshold and, with `--precision-floor <p>`, the best recall whose precision lower bound meets `p` and the threshold that reaches it. `--jobs <n>` runs cases concurrently; each case gets its own judge so usage is still attributed per case.
 
@@ -176,13 +176,16 @@ The cases file carries three floors (`macro_recall`, `negatives_correct`, `preci
 
 ### Running against Cora's private set
 
-The Cora gold set lives in the Cora repository because its content is private. It is built by a script that walks `docs/plans/`, keeps every citation of a `docs/solutions/` file whose learning is dated on or before the plan, takes the plan's title and summary as the query, and splits plans into dev and held-out by hash. From a Cora checkout:
+The Cora gold set is built from Cora's own plans and never leaves a Cora checkout. `bench/scripts/build-citation-gold.py --root <checkout>` walks `docs/plans/`, keeps every citation of a `docs/solutions/` file whose learning is dated on or before the plan, and writes `bench/cases/{dev,heldout}.json` inside that checkout. The primary query is the plan file itself through the plan channel, from a copy with every citation line removed (those lines are where the labels come from, so leaving them in would hand the judge the answer). Title-plus-summary and title-only variants measure noisy inputs; uncited plans are a diagnostic, never a gate. Plans split 60/40 into dev and held-out by hash.
 
 ```bash
-compound bench --cases bench/cases/dev.json --root . --jobs 4 --precision-floor 0.30 --json --out /tmp/cora-bench.json
+python3 bench/scripts/build-citation-gold.py --root ~/src/cora --floor-macro 0.55
+compound bench --cases ~/src/cora/bench/cases/dev.json --root ~/src/cora --jobs 4 --precision-floor 0.30 --json --out /tmp/cora-bench.json
 ```
 
-The same cases file shape applies: `corpus: null` and `--root .` when the corpus is the checkout you are in. A case's `query` may also name a `plan` file (relative to the corpus root) or a `diff` file (relative to the cases file) instead of an activity, which is how the noisy-input variants (title-only, plan-only) are measured.
+CI replays the held-out split too. The `bench-heldout` job clones Cora at the commit the cassettes were recorded against (a `CORA_READ_TOKEN` repository secret with read access; without it the job says so and skips), rebuilds the cases with the same script, and replays `bench/fixtures/cassettes/cora-heldout/` with `--enforce-floor`. Those 2,211 cassettes hold only answers (probabilities, the rubric legend, section tags), no plan or learning text. `CORA_ROOT=~/src/cora bun run bench:heldout` does the same locally. Re-record with `COMPOUND_CASSETTE_MODE=record` after a change to question wording or the judge state, then bump `CORA_COMMIT` in the workflow if Cora moved.
+
+A case's `query` may name a `plan` file (relative to the corpus root) or a `diff` file (relative to the cases file) instead of an activity.
 
 ### Cassettes
 
