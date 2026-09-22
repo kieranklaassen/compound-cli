@@ -11,7 +11,11 @@ import {
 import type { CandidateKind } from "../corpus/candidate.ts";
 import { UsageError } from "../errors.ts";
 import { DEFAULTS } from "../find/defaults.ts";
+import type { CandidateFilters } from "../find/filters.ts";
+import type { JudgeSettings } from "../find/find.ts";
+import type { FindMode } from "../find/result.ts";
 import type { ChannelInput } from "../input/work-state.ts";
+import type { OutputFormat } from "../output/render.ts";
 
 export const FIND_OPTIONS = {
   ...HELP_OPTION,
@@ -43,28 +47,6 @@ export const FIND_OPTIONS = {
   "no-sources": { type: "boolean" },
   debug: { type: "boolean" },
 } as const satisfies OptionSpecs;
-
-export type FindMode = "find" | "gate" | "overlap";
-export type OutputFormat = "json" | "compact" | "report";
-
-export type JudgeSettings = {
-  threshold: number;
-  tierOneThreshold: number;
-  frontmatterOnly: boolean;
-  batch: number;
-  parallel: number;
-  candidateCap: number;
-  excerptChars: number;
-  model: string;
-};
-
-export type CandidateFilters = {
-  kinds: CandidateKind[];
-  problemTypes: string[];
-  modules: string[];
-  tags: string[];
-  packs: string[];
-};
 
 export type FindOptions = {
   help: boolean;
