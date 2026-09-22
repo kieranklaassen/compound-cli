@@ -1,0 +1,4 @@
+docs_root: knowledge
+packs:
+  - source: local/packs
+    unknown_key: 1

@@ -1,0 +1,7 @@
+{
+  "recorded_at": "2026-09-22T02:45:36.906Z",
+  "threshold": 0.5,
+  "tier_one_threshold": 0.3,
+  "model_requested": "jev-latest",
+  "model_answered": "jev-1.13.0"
+}

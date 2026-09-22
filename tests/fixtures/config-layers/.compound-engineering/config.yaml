@@ -1,0 +1,6 @@
+docs_root: docs
+packs:
+  - source: https://github.com/example/packs/tree/v1/packs
+    pack: [alpha, beta]
+  - source: ~/some/packs
+    id: renamed

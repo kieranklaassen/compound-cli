@@ -1,0 +1,4 @@
+# Fixture repo for compound-cli tests
+docs_root: docs
+packs:
+  - source: packs/local-rules
