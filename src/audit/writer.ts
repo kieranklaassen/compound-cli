@@ -14,7 +14,6 @@ export type FieldChange = {
 export type RewriteResult = {
   text: string;
   frontmatterText: string;
-  diff: string;
 };
 
 /**
@@ -45,7 +44,7 @@ export function rewriteFrontmatter(doc: SplitDocument, changes: FieldChange[]): 
   if (frontmatterText === "{}") frontmatterText = "";
   if (doc.eol === "\r\n") frontmatterText = frontmatterText.replace(/\n/g, "\r\n");
   const text = `${doc.bom}---${doc.eol}${frontmatterText}${doc.eol}---${doc.eol}${doc.body}`;
-  return { text, frontmatterText, diff: "" };
+  return { text, frontmatterText };
 }
 
 /** A unified diff of two texts, for the frontmatter block only, with the path as the header. */

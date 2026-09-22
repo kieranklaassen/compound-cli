@@ -259,7 +259,7 @@ export function auditChoiceRequest(
       for (const value of Object.keys(choice.options)) criteria[value] = `\`${value}\``;
     }
     if (choice.usage && Object.keys(choice.usage).length) usage[choice.field] = choice.usage;
-    questions[choice.field] = choiceQuestion(
+    questions[choice.field] = choice(
       `Which value fits the learning in \`document\` best for its \`${choice.field}\` field? ${
         choice.tagged
           ? `The options are the values this corpus already uses, under \`vocabulary.${choice.field}\`${
@@ -301,7 +301,3 @@ export const AUDIT_NOUL_QUESTIONS = {
   tags: (tag: string) =>
     `Is the keyword tagged ${tag} under \`candidates.tags\` a search keyword someone would use to find the learning in \`document\`? Yes only when the document is about it, not merely mentions it.`,
 } as const;
-
-function choiceQuestion(instructions: string, criteria: ChoiceCriteria) {
-  return choice(instructions, criteria);
-}

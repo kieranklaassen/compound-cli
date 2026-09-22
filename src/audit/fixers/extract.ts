@@ -41,7 +41,7 @@ function extract(body: string, mode: "situation" | "symptom"): Extracted[] {
   };
 
   const lines = prose.split(/\r?\n/);
-  for (let i = 0; i < lines.length && out.length < CANDIDATE_MAX * 3; i++) {
+  for (let i = 0; i < lines.length && out.length < CANDIDATE_MAX; i++) {
     const line = lines[i] ?? "";
     const heading = /^#{2,3}\s+(.+?)\s*$/.exec(line);
     if (heading) {
