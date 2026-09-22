@@ -1,6 +1,6 @@
 import type { Context } from "../context.ts";
 import { openWorkspace } from "../corpus/load.ts";
-import { knownSourcePackCandidates } from "../corpus/pack-sources.ts";
+import { loadPackCandidates } from "../corpus/pack-sources.ts";
 import { EXIT } from "../exit-codes.ts";
 import { runFind } from "../find/find.ts";
 import { FIND_HELP } from "../help.ts";
@@ -30,7 +30,12 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     settings: options.judge,
     filters: options.filters,
     mode: options.mode,
-    ...(options.consultSources ? { loadPackCandidates: knownSourcePackCandidates } : {}),
+    ...(options.consultSources
+      ? {
+          loadPackCandidates: (ws: typeof workspace, declared: ReadonlySet<string>) =>
+            loadPackCandidates(ws.config, declared, ctx.env),
+        }
+      : {}),
   });
   emit(run.result, options.output, ctx);
   return EXIT.OK;

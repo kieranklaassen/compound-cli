@@ -24,7 +24,10 @@ export type JudgeSettings = {
   model: string;
 };
 
-export type PackCandidateLoader = (workspace: Workspace) => {
+export type PackCandidateLoader = (
+  workspace: Workspace,
+  declaredIds: ReadonlySet<string>,
+) => {
   candidates: Candidate[];
   warnings: string[];
 };
@@ -44,8 +47,9 @@ export async function runFind(input: FindInput): Promise<FindRun> {
   const { workspace, state, judge, settings, filters, mode } = input;
   const corpus = loadCorpus(workspace);
   const warnings = [...corpus.warnings];
+  const declaredIds = new Set(corpus.packs.roots.map((root) => root.id));
   const packCandidates = input.loadPackCandidates
-    ? input.loadPackCandidates(workspace)
+    ? input.loadPackCandidates(workspace, declaredIds)
     : { candidates: [], warnings: [] };
   warnings.push(...packCandidates.warnings);
 
