@@ -133,8 +133,8 @@ export function aggregate(scores: CaseScore[], threshold: number): Aggregate {
 export function latencyStats(values: number[]): BenchReport["latency_ms"] {
   if (values.length === 0) return { median: 0, p90: 0, mean: 0, total: 0 };
   const sorted = [...values].sort((a, b) => a - b);
-  const at = (q: number) =>
-    sorted[Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1)))] ?? 0;
+  // Nearest-rank percentile: the smallest value at or above the requested share of samples.
+  const at = (q: number) => sorted[Math.max(0, Math.ceil(q * sorted.length) - 1)] ?? 0;
   const total = sorted.reduce((a, b) => a + b, 0);
   return { median: at(0.5), p90: at(0.9), mean: Math.round(total / sorted.length), total };
 }
