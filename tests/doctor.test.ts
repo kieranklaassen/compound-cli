@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { tempDir } from "./helpers/fixtures.ts";
 import { runCli } from "./helpers/run-cli.ts";
 

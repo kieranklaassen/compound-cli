@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadCeConfig } from "../src/config/ce-config.ts";
 import { resolveRepoRoot } from "../src/config/repo-root.ts";
