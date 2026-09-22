@@ -248,28 +248,28 @@ export function auditChoiceRequest(
   const vocabulary: Record<string, Record<string, string>> = {};
   const usage: Record<string, Record<string, number>> = {};
   const questions: Questions = {};
-  for (const choice of choices) {
+  for (const item of choices) {
     const criteria: ChoiceCriteria = {};
-    if (choice.tagged) {
-      vocabulary[choice.field] = choice.options;
-      for (const tag of Object.keys(choice.options)) {
-        criteria[tag] = `the value tagged ${tag} under \`vocabulary.${choice.field}\``;
+    if (item.tagged) {
+      vocabulary[item.field] = item.options;
+      for (const tag of Object.keys(item.options)) {
+        criteria[tag] = `the value tagged ${tag} under \`vocabulary.${item.field}\``;
       }
     } else {
-      for (const value of Object.keys(choice.options)) criteria[value] = `\`${value}\``;
+      for (const value of Object.keys(item.options)) criteria[value] = `\`${value}\``;
     }
-    if (choice.usage && Object.keys(choice.usage).length) usage[choice.field] = choice.usage;
-    questions[choice.field] = choice(
-      `Which value fits the learning in \`document\` best for its \`${choice.field}\` field? ${
-        choice.tagged
-          ? `The options are the values this corpus already uses, under \`vocabulary.${choice.field}\`${
-              usage[choice.field]
-                ? `; \`usage.${choice.field}\` counts how often each is used, by the same tag. When two values fit, follow the corpus's habit.`
+    if (item.usage && Object.keys(item.usage).length) usage[item.field] = item.usage;
+    questions[item.field] = choice(
+      `Which value fits the learning in \`document\` best for its \`${item.field}\` field? ${
+        item.tagged
+          ? `The options are the values this corpus already uses, under \`vocabulary.${item.field}\`${
+              usage[item.field]
+                ? `; \`usage.${item.field}\` counts how often each is used, by the same tag. When two values fit, follow the corpus's habit.`
                 : "."
             }`
           : `The options are the schema's values.${
-              usage[choice.field]
-                ? ` \`usage.${choice.field}\` counts how often this corpus uses each value; when two values fit, follow the corpus's habit.`
+              usage[item.field]
+                ? ` \`usage.${item.field}\` counts how often this corpus uses each value; when two values fit, follow the corpus's habit.`
                 : ""
             }`
       }`,
