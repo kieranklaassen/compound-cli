@@ -104,7 +104,7 @@ export function unsafeScalars(frontmatterText: string): string[] {
 export function firstHeading(body: string): string | undefined {
   const prose = body.replace(/```[\s\S]*?```/g, "");
   const match = /^#\s+(.+?)\s*$/m.exec(prose);
-  // Only paired emphasis around the whole heading is markup; backticks and
-  // asterisks inside it (`m.*`) are the author's text.
+  // Only one strong span wrapping the whole heading is markup; backticks and
+  // asterisks inside it (`m.*`, or two separate spans) are the author's text.
   return match?.[1]?.replace(/^(\*\*|__)((?:(?!\1).)+)\1$/, "$2").trim() || undefined;
 }

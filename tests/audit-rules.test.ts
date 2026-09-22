@@ -86,6 +86,8 @@ describe("splitDocument", () => {
     expect(firstHeading("# framer-motion: always use `m.*`, never `motion.*`\n")).toBe(
       "framer-motion: always use `m.*`, never `motion.*`",
     );
+    expect(firstHeading("# **a** and **b**\n")).toBe("**a** and **b**");
+    expect(firstHeading("# __whole heading__\n")).toBe("whole heading");
     expect(firstHeading("no heading")).toBeUndefined();
   });
 });
