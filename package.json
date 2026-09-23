@@ -1,7 +1,7 @@
 {
   "name": "compound-cli",
   "version": "0.1.0",
-  "description": "The command-line tool for compound docs: learnings, pack rules, frontmatter validation and repair, recall, and benches",
+  "description": "The optional tool for working on compound docs: learnings, pack rules, frontmatter validation and repair, recall, and benches",
   "license": "MIT",
   "author": "Kieran Klaassen",
   "homepage": "https://github.com/kieranklaassen/compound-cli",

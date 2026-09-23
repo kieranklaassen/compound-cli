@@ -2,7 +2,7 @@
 
 > Validate learning and pack frontmatter against the schema in effect for the repository, and repair what can be repaired without inventing anything.
 
-Learnings compound only when their frontmatter lets the next run find them. `audit` checks every file under `docs/solutions/` (and pack rules and READMEs, when asked) against the CLI's default schema layered with the repository's own `compound.schema.fields`, the parser-safety rules of the plugin's `validate-frontmatter.py`, a bare-literal check, and the findability rules the optimize runs showed matter most. It behaves like a linter: report by default, `--fix` for the repairs that need no judgment and no key, `--fix --jev` for the ones that ask the judge. It replaced Cora's `script/validate_solutions_frontmatter.py` and compound-packs' `tools/validate-packs.py`.
+Learnings compound only when their frontmatter lets the next run find them. `audit` checks every file under `docs/solutions/` (and pack rules and READMEs, when asked) against the CLI's default schema layered with the repository's own `compound.schema.fields`, the parser-safety rules of the plugin's `validate-frontmatter.py`, a bare-literal check, and the findability rules the optimize runs showed matter most. It behaves like a linter: report by default, `--fix` for the repairs that need no judgment and no key, `--fix --jev` for the ones that ask the judge. It is useful on its own, with no `find` involved: Cora and compound-packs run it in CI in place of the frontmatter validator scripts each repository used to carry, while the plugin's own write-time guard (`validate-frontmatter.py`) stays where it is.
 
 | Question | Answer |
 |---|---|
