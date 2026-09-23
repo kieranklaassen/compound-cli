@@ -1,4 +1,8 @@
-# Repository configuration: the `compound:` block
+# Schema and configuration
+
+compound-cli reads two things from a repository: the Compound Engineering config it already has, and, inside it, one `compound:` block that only the CLI reads. This page covers where the default schema comes from, how a repository extends or narrows it, and the audit's policy keys. `compound audit` is the consumer; `compound schema`, which will print the effective schema with each value's source, is planned.
+
+## The `compound:` block
 
 compound-cli reads the same two files Compound Engineering already uses, `.compound-engineering/config.yaml` and `.compound-engineering/config.local.yaml`, with the same layering: the local file sits on top of the shared one. `docs_root:`, `packs:`, and `pack_sources:` stay top level because the plugin reads them. Everything only the CLI reads sits under one `compound:` key, so it never collides with a plugin key.
 

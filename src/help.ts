@@ -8,7 +8,7 @@ const EXIT_LINES = EXIT_CODE_DOCS.map(
 ).join("\n");
 
 export const MAIN_HELP = `compound ${VERSION}
-Jev-powered recall over Compound Engineering learnings and packs.
+The command-line tool for compound docs: learnings, pack rules, frontmatter validation and repair, recall, and benches.
 
 Usage
   compound <command> [options]

@@ -4,6 +4,10 @@ All notable changes to compound-cli. The format follows Keep a Changelog, and th
 
 ## Unreleased
 
+### Changed
+
+- The README is short: what the tool is, install, one line per command (shipped and planned), and the three snippets skills and CI paste. Everything else moved under `docs/`: a page per command, the JSON contract, exit codes, schema and configuration (`docs/config.md` became `docs/configuration.md`), CI setup, gold sets and cassettes, how judging works and what it costs, the results of the optimize runs, and development. The framing follows the compound-docs tooling design: one tool for compound docs, opt-in for skills through `command -v compound`, pinned by repositories in CI.
+
 ### Added
 
 - `compound audit [--root] [--json] [--strict] [--packs] [--pack-dir <dir>] [--stats] [--report <file>]` validates every learning under `docs/solutions/` against the schema in effect for the repository (the plugin's frontmatter schema as the defaults, the repository's `compound.schema.fields` layered over it) and the parser-safety rules, plus the findability rules (`applies_when` present and specific, tags lowercase, title present), reports per file with the layer each rule came from, and exits 6 (new, documented) when a file fails. `--packs` audits declared pack rules and READMEs; `--pack-dir` is pack-authoring mode for a repository of packs (README with 3 to 8 situations and the pack id tag, `pack.readme_missing`, `pack.no_rules`); `--stats` prints field coverage and README coverage. `doctor` reports the audit counts.
