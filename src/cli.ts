@@ -12,6 +12,7 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   bench: () => import("./commands/bench.ts"),
   doctor: () => import("./commands/doctor.ts"),
   audit: () => import("./commands/audit.ts"),
+  eval: () => import("./commands/eval.ts"),
 };
 
 export async function main(argv: string[], ctx: Context = processContext()): Promise<number> {

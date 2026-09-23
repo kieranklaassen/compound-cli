@@ -9,11 +9,12 @@ bun run typecheck
 bun run lint          # biome; bun run lint:fix rewrites
 bun run build         # dist/cli.js, runs under node too
 bun run src/bin.ts <command>   # run from source
-bun run bench:ci      # replay the public gold set and enforce its floors
-bun run bench:record  # re-record it (needs a key)
+bun run eval:ci       # replay the smoke suite under evals/ and enforce its floors
+bun run eval:record   # re-record it (needs a key)
+bun run bench:ci      # the deprecated JSON form of the same replay
 ```
 
-CI runs tests, typecheck, and lint, then `compound audit --strict` on this repository's own learnings under `docs/solutions/`, then the two bench replays. All of it runs without a key; the Cora held-out job skips when the `CORA_READ_TOKEN` secret is absent.
+CI runs tests, typecheck, and lint, then `compound audit --strict` on this repository's own learnings under `docs/solutions/`, then `compound eval evals --replay --enforce-floor`, the smoke suite over ten of the plugin's cases. All of it runs without a key. The full collections (Cora, compound-packs, BabyAgent, the whole plugin set) live in the private cases repository `kieranklaassen/compound-evals`, whose own CI pins this CLI by commit.
 
 ## Tests and cassettes
 
@@ -35,7 +36,9 @@ The audit's fixtures are a small corpus under `tests/fixtures/audit/docs/solutio
 | Pack resolution, the port of `packs-resolve.py` | `src/corpus/packs.ts` |
 | Exit codes | `src/exit-codes.ts` |
 | Help text | `src/help.ts` |
-| Measurement scripts (to be replaced by `bench build` and `bench audit`) | `bench/scripts/` |
+| The eval: suite and case format, runner, report, import, add | `src/eval/` |
+| The smoke suite and its cassettes | `evals/` |
+| Measurement scripts (the citation builder stays until `bench build --from-citations`) | `bench/scripts/` |
 
 ## Contract discipline
 

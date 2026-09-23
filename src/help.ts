@@ -17,7 +17,8 @@ Usage
 Commands
   find      Recall learnings and pack rules relevant to a work context
   packs     resolve | list | suggest | add: declared and suggested Compound Packs
-  bench     Run a gold set of cases and report recall, cost, and latency
+  eval      Run a cases collection (evals/) and report recall, cost, and latency
+  bench     Deprecated: run a JSON cases file; convert it with eval import
   doctor    Check the key, the corpus, and pack sources
   audit     Validate learning frontmatter against the schema; --fix repairs it
   version   Print the version
@@ -105,7 +106,60 @@ Options
   --yes                     Write without confirmation (add)
 `;
 
-export const BENCH_HELP = `compound bench: run a gold set and report recall, cost, and latency
+export const EVAL_HELP = `compound eval: run a cases collection and report recall, cost, and latency
+
+Usage
+  compound eval [path] [--case <id>]... [--tag <tag>]... [--kind find|packs]... [--replay | --record | --live]
+                [--sweep <p,p,...>] [--enforce-floor] [--max-cost-usd <n>] [--jobs <n>] [--json] [--out <file>]
+  compound eval import <cases.json> --out <dir> [--cassettes <dir>] [--plans-from <dir> --plans-to <dir>] [--packs]
+  compound eval add --miss --out <dir> --id <slug> --expect <path>... --note "..." [activity] [--plan <file>]
+
+A case is a directory holding query.md (frontmatter for the channels and tags, the
+activity sentence as the body) and expect.yaml (hits, packs, near_miss, or
+nothing_relevant: true). A suite.yaml at any level pins the corpus for the cases
+below it (git and ref, or path), sets floors and the cassette directory. The corpus
+is fetched at its SHA when the cases run; no plan or learning text is copied.
+The default path is evals/ in the current repository.
+
+Modes
+  --replay                  Answer from the suite's cassettes only; no key, no network (exit 5 on a miss)
+  --record                  Record every answer into the suite's cassettes (needs the key)
+  --live                    Ignore cassettes (needs the key)
+  (none)                    replay without a key, auto with one (replay what exists, record the rest)
+
+Options
+  --case <id>               Run one case (repeatable); the directory name or its path under the root
+  --tag <tag>               Run cases carrying a tag (repeatable)
+  --kind find|packs         Run one channel's cases (repeatable)
+  --sweep <p,p,...>         Re-score the find channel at several thresholds
+  --enforce-floor           Exit 6 when a floor in a suite.yaml is not met
+  --max-cost-usd <n>        Stop starting cases once the run's estimated cost passes n
+  --jobs <n>                Cases to run concurrently (default 1)
+  --threshold <0..1>        Hit bar for learnings and rules (default 0.6, or the suite's)
+  --suggest-threshold <p>   Bar for pack suggestions (default 0.5, or the suite's)
+  --root <dir>              Use one checkout as every suite's corpus
+  --json, --out <file>      The full result as JSON, to stdout or to a file
+
+import converts a JSON cases file (compound-cli's bench format, or compound-packs'
+findability cases) into case directories and a suite.yaml, and copies a cassette
+directory as it is: the same request has the same hash, so nothing is re-recorded.
+--plans-from/--plans-to turn pointers at redacted plan copies back into the originals
+with redact_citations: true. --packs marks a repository of packs (pack rules only,
+suggest from its packs/ directory).
+
+add --miss writes one case from a real miss: the work context in hand, the repository
+and its HEAD as the corpus pin, what should have surfaced, and a note.
+
+Exit codes: 0 every floor holds; 6 a floor failed under --enforce-floor; 2 a malformed
+case or suite; 3 no key for a live or recording run; 4 a corpus could not be fetched;
+5 a replay had no recording for a request.
+`;
+
+export const BENCH_HELP = `compound bench (deprecated): run a JSON gold set and report recall, cost, and latency
+
+Deprecated in favour of \`compound eval\`. Convert a cases file with
+\`compound eval import <file> --out evals/<name> --cassettes <dir>\` and run
+\`compound eval evals/<name>\`. This command stays for one release.
 
 Usage
   compound bench --cases <file> [--root <checkout>] [--json] [--out <file>]

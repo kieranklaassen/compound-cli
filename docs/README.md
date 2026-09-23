@@ -19,7 +19,7 @@ compound-cli is optional and supporting. The compound-engineering plugin works w
 | Repair a corpus | ce-compound-refresh edits by hand | | `compound audit --fix` (deterministic, no key), `--fix --jev` (with the judge) |
 | Honor a repository's schema | The corpus-first rule in the plugin's `yaml-schema.md`; CI catches the rest | | `compound audit` reads [`compound.schema.fields`](configuration.md) from the repository's config |
 | Gate a repository's docs in CI | | | `compound audit --strict`, `--pack-dir` for a repository of packs ([CI setup](ci.md)) |
-| Measure recall, build gold sets, score fixes | | | [`compound bench`](commands/bench.md) and the scripts under `bench/` |
+| Measure whether compounding works | | | [`compound eval`](commands/eval.md) over a cases collection pinned to corpus SHAs; `bench --cases` is the deprecated JSON form |
 
 ## Commands
 
@@ -28,7 +28,8 @@ compound-cli is optional and supporting. The compound-engineering plugin works w
 | [find](commands/find.md) | Input channels, the two judging tiers, modes (`--gate`, `--overlap`), filters, output formats, calling it from a skill |
 | [audit](commands/audit.md) | The rules and their fixers, `--fix` and `--fix --jev`, pack modes, `--stats`, what the report means |
 | [packs](commands/packs.md) | `resolve`, `list`, `suggest`, `add`; the `packs:` config; known sources and the cache |
-| [bench](commands/bench.md) | Running a gold set, sweeps, precision floors, `--enforce-floor`, cassette replay |
+| [eval](commands/eval.md) | The case and suite format, channels, modes, floors, `import` from the JSON suites, `add --miss` |
+| [bench](commands/bench.md) | Deprecated: the JSON gold set runner, kept for one release |
 | [doctor](commands/doctor.md) | What it reports and how to read it |
 
 ## Contracts and configuration
@@ -44,7 +45,7 @@ compound-cli is optional and supporting. The compound-engineering plugin works w
 
 | Page | Covers |
 |---|---|
-| [Gold sets and cassettes](gold-sets.md) | The cases file format, the public gold set, building a citation gold set from a repository's plans, the held-out replay in CI, cassettes |
+| [Cases, gold sets, and cassettes](gold-sets.md) | The cases collection and where it lives, building citation cases from a repository's plans, the smoke suite, cassettes |
 | [Judging](judging.md) | How Jev is asked, the two tiers, the rubric, thresholds, why documents are data and never instructions, cost and latency |
 | [Results](results.md) | The public gold set, the Cora optimize run that set the defaults, the compound-packs findability run, and how close `audit --fix` gets to hand-written frontmatter |
 | [Development](development.md) | Repository commands, tests and cassettes, where questions and defaults live, releasing |

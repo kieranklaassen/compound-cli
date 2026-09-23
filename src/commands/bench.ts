@@ -68,6 +68,9 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     return EXIT.OK;
   }
   if (!v.cases) throw new UsageError("bench requires --cases <file>");
+  ctx.stderr(
+    "compound bench --cases is deprecated and goes away next release: convert the file with `compound eval import <file> --out evals/<name>` and run `compound eval evals/<name>`\n",
+  );
   const casesPath = resolve(ctx.cwd, v.cases);
   const file = readCasesFile(casesPath);
   const settings = resolveJudgeSettings(v);
