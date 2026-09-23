@@ -6,7 +6,7 @@ All notable changes to compound-cli. The format follows Keep a Changelog, and th
 
 ### Changed
 
-- The README is short: what the tool is, install, one line per command (shipped and planned), and the three snippets skills and CI paste. Everything else moved under `docs/`: a page per command, the JSON contract, exit codes, schema and configuration (`docs/config.md` became `docs/configuration.md`), CI setup, gold sets and cassettes, how judging works and what it costs, the results of the optimize runs, and development. The framing follows the compound-docs tooling design: one tool for compound docs, opt-in for skills through `command -v compound`, pinned by repositories in CI.
+- The README is short: what the tool is, install, one line per command (shipped and planned), and the three snippets skills and CI paste. Everything else moved under `docs/`: a page per command, the JSON contract, exit codes, schema and configuration (`docs/config.md` became `docs/configuration.md`), CI setup, gold sets and cassettes, how judging works and what it costs, the results of the optimize runs, and development. The framing follows the compound-docs tooling design: an optional, supporting tool whose commands stand on their own; the plugin works without it; skills pick up better recall through `command -v compound`; repositories pin it in CI for `audit --strict`, the one place a repo-local script is replaced.
 
 ### Added
 

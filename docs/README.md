@@ -2,9 +2,9 @@
 
 The README says what the tool is and how to call it. These pages hold the detail: what each command does and why, the contracts skills and CI depend on, where the schema comes from, how the judge works and what it costs, and the numbers behind the defaults. The source of truth for behaviour is the code and its tests; these pages describe it for people who use the tool.
 
-## Where the tool sits
+## Works without it, better with it
 
-Compound Engineering works without the CLI, with grep and the plugin's own small helpers (`packs-resolve.py`, `validate-frontmatter.py`, `validate-doc-claims.py`). The CLI is opt-in and modular: `audit` and `audit --fix` improve a corpus on their own, and `find` is a recall upgrade a skill uses only when `compound` is on `PATH`. Where the plugin and the CLI both do a job, they share a contract: the same `packs:` config, the same JSON shape for resolved packs, the same frontmatter schema.
+compound-cli is optional and supporting. The compound-engineering plugin works without it, with plain grep and its own small helpers (`packs-resolve.py`, `validate-frontmatter.py`, `validate-doc-claims.py`), and nothing in the plugin depends on the CLI. Each command is modular and useful on its own: a repository can run `audit` and `audit --fix` to improve a corpus without ever using `find`, and a skill can call `packs resolve` without judging anything. Where the plugin and the CLI both do a job they share a contract (the same `packs:` config, the same JSON for resolved packs, the same frontmatter schema), so a skill that finds `compound` on `PATH` gets better recall and says so once when it does not. The one place a repository's own script is replaced is CI: `compound audit --strict` took over the repo-local frontmatter validators in Cora and compound-packs.
 
 | Capability | Plain Compound Engineering | Better with the CLI | CLI only |
 |---|---|---|---|

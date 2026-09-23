@@ -1,6 +1,16 @@
 # compound-cli
 
-The one command-line tool for compound docs: the learnings under `docs/solutions/`, Compound Pack rules, the frontmatter that makes both findable, recall over them with TypeSafe's Jev, and the benches that keep recall measurable. It replaces the repo-local scripts that did these jobs one repository at a time. Compound Engineering works without it; a skill uses `compound` when `command -v compound` finds it, and a repository that wants its docs checked in CI pins one version and runs `compound audit --strict`.
+The optional command-line tool for working on compound docs: the learnings under `docs/solutions/`, Compound Pack rules, the frontmatter that makes both findable, recall over them with TypeSafe's Jev, and the benches that keep recall measurable. Compound Engineering does not need it. Each command is useful on its own: a repository can run `audit` and `audit --fix` in CI to keep its corpus in shape without ever using `find`, and skills pick up better recall when `compound` is installed.
+
+## Works without it, better with it
+
+The compound-engineering plugin works with plain grep and its own small helpers, and keeps working that way. This tool adds to that, one command at a time:
+
+- Repositories use `compound audit --strict` in CI to check every learning's frontmatter against the schema, with their own field rules in `.compound-engineering/config.yaml`. This is the one place a repo-local validator script gets replaced; Cora and compound-packs did that.
+- `compound audit --fix` repairs a corpus deterministically with no key; `--fix --jev` adds the judge for the fields that need one.
+- Skills get better recall when `compound` is on `PATH`: `compound find` judges every learning and pack rule against the work with calibrated scores, where the grep path shortlists by keyword. A skill checks `command -v compound` and falls back to grep when it is absent.
+- `compound packs resolve` gives a skill the same JSON the plugin's `packs-resolve.py` gives, from one implementation shared with `find`; `packs suggest` and `packs add` find packs a repository should adopt.
+- `compound bench` makes recall measurable, so a change to frontmatter or to judging is a number, not a feeling.
 
 ## Install
 
