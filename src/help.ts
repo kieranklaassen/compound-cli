@@ -19,6 +19,7 @@ Commands
   packs     resolve | list | suggest | add: declared and suggested Compound Packs
   bench     Run a gold set of cases and report recall, cost, and latency
   doctor    Check the key, the corpus, and pack sources
+  audit     Validate learning frontmatter against the schema; --fix repairs it
   version   Print the version
 
 Global options
@@ -121,6 +122,58 @@ Options
   --json                    Full result as JSON
   --out <file>              Also write the JSON result to a file
   --model <name>            TypeSafe model (default jev-latest)
+`;
+
+export const AUDIT_HELP = `compound audit: validate learning and pack frontmatter against the schema, and repair it
+
+Usage
+  compound audit [--root <dir>] [--json] [--strict] [--packs] [--pack-dir <dir>]... [--stats] [--report <file>]
+  compound audit --fix [--jev] [--dry-run | --yes] [--root <dir>] [--json] [--report <file>]
+
+Checks every file under <root>/solutions/ against the schema in effect for the repository:
+the CLI's defaults (the plugin's schema.yaml) layered with the repository's own
+compound.schema.fields in .compound-engineering/config.yaml (see docs/config.md). Frontmatter
+that parses and quotes hazards, no bare null/true/123 in a string field, title, date,
+problem_type, module, component, severity, the bug-track fields (symptoms, root_cause,
+resolution_type), and the findability fields applies_when (present, specific, at most 5)
+and tags (lowercase, at most 8). Errors are schema and parser-safety violations; warnings
+are findability gaps. Exit 6 when a file has an error; --strict makes warnings count.
+Every finding names where its rule came from (default, config.yaml, config.local.yaml).
+
+--fix is a linter's fix: the deterministic repairs only, no key needed. A date from the
+file's history or name, enum spelling, tag format, scalars wrapped in lists, duplicates
+removed, a title from the first heading, a value cut at ' #' recovered, a bare literal
+quoted. Every change is a diff of the frontmatter block; bodies are never touched.
+--fix --jev adds the fixers that ask the judge (TYPESAFE_API_KEY, exit 3 without it):
+problem_type, severity, resolution_type, and any custom enum as a choice over the values
+in effect for this repository; module, component, and root_cause as a choice over the
+values this corpus already uses; tags as judgments over the corpus's own tags; applies_when
+and symptoms from sentences extracted from the body and judged one by one. Nothing is
+invented: when no candidate passes, the field is marked needs_author with the reason.
+
+Options
+  --root <dir>              Repository root (default: the git root of the working directory)
+  --json                    Print the report as JSON (schema_version 1)
+  --strict                  Warnings fail too (or compound.audit.strict: true in the config)
+  --packs                   Also audit the rules and READMEs of declared packs (never fixed)
+  --pack-dir <dir>          Pack-authoring mode: every child of <dir> is a pack with a README
+                            and rules (or compound.audit.pack_dirs in the config); repeatable
+  --stats                   Field coverage of the learnings, and README coverage per pack rule
+  --report <file>           Write the JSON report to a file whatever the terminal format
+  --fix                     Propose and apply the deterministic repairs
+  --jev                     With --fix: add the Jev fixers (needs the key)
+  --dry-run                 With --fix: show the diffs, write nothing
+  --yes                     With --fix: apply without the prompt (required off a TTY)
+  --model <name>            With --fix --jev: TypeSafe model (default jev-latest)
+
+The Jev fixers hold answers to bars the report echoes under "thresholds": a Choice below
+0.4, a tag below 0.6, or a situation or symptom below 0.7 goes to the author instead.
+The exit code always describes the files on disk: after --dry-run or a declined prompt
+the summary's "after fixing" (JSON: summary.after_fix) says what a --yes run would leave.
+
+Exit codes: 0 all files pass; 6 a file fails; 2 usage or a broken compound: config block;
+3 --fix --jev without a key; 4 no corpus; 5 the judge failed during --fix --jev (nothing
+is written then).
 `;
 
 export const DOCTOR_HELP = `compound doctor: check the key, the corpus, and pack sources

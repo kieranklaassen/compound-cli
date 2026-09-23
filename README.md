@@ -4,13 +4,32 @@ Jev-powered recall over Compound Engineering learnings and packs.
 
 `compound find` takes the work a skill is about to do, judges every learning under `docs/solutions/` and every declared Compound Pack rule against it with TypeSafe's Jev, and returns the ones that apply, each with a calibrated score and the passage that matters. It answers "nothing relevant" as a real answer, not a crash. Around `find` sit `packs` (resolve, list, suggest, add), `bench` (a gold-set harness that makes recall measurable), and `doctor` (configuration and corpus health).
 
-Compound Engineering skills call it when it is present and configured, and fall back to today's grep-first researcher when it is not.
+The CLI is opt-in. Compound Engineering works without it, with grep and the plugin's own small helpers; a skill uses `compound` only when `command -v compound` finds it on `PATH` (never through `bunx`, which would fetch the CLI on first use), and when it is absent, exits 3, or times out, the skill runs today's path and says so once. `audit` and `audit --fix` stand on their own with no key and no `find` involved.
 
 ## Why
 
 Compound Engineering compounds knowledge only if the next run finds it. Today every recall path in the plugin is a subagent prompt that greps frontmatter with keywords the agent invents, reads the first 30 lines of a shortlist, and returns prose. Nothing returns a score, a threshold, or a distinct "nothing relevant" answer, and nothing measures whether a learning that should have surfaced did. The `applies_when` field, the one that best describes when a learning applies, is the one keyword grep matches worst.
 
 Jev is a System One model: it reads a state once and answers a batch of yes/no questions with calibrated probabilities. That is the shape of "which of these 230 documents apply to this work". On the public gold set it reaches 98.7 percent macro recall at a median of 592 ms and about a tenth of a cent per query.
+
+## Where it fits
+
+| Capability | Plain Compound Engineering | Better with the CLI | CLI only |
+|---|---|---|---|
+| Recall learnings for a plan, brainstorm, or review | Grep-first `learnings-researcher` over `docs/solutions/` and resolved pack roots | `compound find` ranks every candidate with calibrated Jev judgments | |
+| Decide whether a review needs the learnings persona | The persona's own heuristics | `compound find --diff - --gate` returns one probability | |
+| Check a draft learning against existing ones | The agent reads the related docs it found | `compound find --overlap --doc <file>` scores five dimensions | |
+| Resolve declared packs | `packs-resolve.py` | `compound packs resolve`, same JSON, one implementation shared with `find` | |
+| Discover packs a repository should adopt | | | `compound packs suggest`, `compound packs add` |
+| Parser safety of a learning at write time | `validate-frontmatter.py` | `compound audit` adds schema and findability checks | |
+| Grounding of a learning's body | `validate-doc-claims.py` | | |
+| Audit a whole corpus | ce-compound-refresh, one document at a time | | `compound audit`, with rule ids, counts, and JSON |
+| Repair a corpus | ce-compound-refresh edits by hand | | `compound audit --fix` (deterministic, no key), `--fix --jev` (with the judge) |
+| Honor a repository's schema | The corpus-first rule in `yaml-schema.md`; CI catches the rest | | `compound audit` reads `compound.schema.fields` from the repository's config |
+| Gate a repository's docs in CI | | | `compound audit --strict`, `--pack-dir` for a repository of packs |
+| Measure recall, build gold sets, score fixes | | | `compound bench` and the scripts under `bench/` |
+
+The CLI-only rows are corpus-wide work and pack discovery. Everything a skill does in the middle of a task works without it.
 
 ## Install and run
 
@@ -124,6 +143,7 @@ Every outcome a caller switches on keeps its own code.
 | 3 | Not configured: `TYPESAFE_API_KEY` is unset |
 | 4 | Missing corpus: no `<root>/solutions/` and no declared packs |
 | 5 | Judge failure: TypeSafe failed after retries, or a cassette replay missed |
+| 6 | Audit found files that fail: an error, or a warning under `--strict` |
 
 Exit 1 also covers one environment case: running the `compound` bin from a git checkout under Node with no `dist/` build. The message says to use `bunx --bun` or `bun run build`.
 
@@ -191,6 +211,70 @@ A case's `query` may name a `plan` file (relative to the corpus root) or a `diff
 
 The bench runs in CI without a key. `COMPOUND_CASSETTE_MODE=record` records every TypeSafe response under `COMPOUND_CASSETTE_DIR`, keyed by a hash of the request body; `replay` answers from those files and never touches the network; `auto` replays a recording when one exists and records a live answer when it does not, which is what an optimization loop wants: unchanged requests stay deterministic and free, only new wording costs money. Cassettes hold only the response body and status, never headers or the key. `bun run bench:record` re-records the public set after a wording change; `bun run bench:ci` replays it and fails when macro recall drops below the floor in the cases file.
 
+## audit
+
+Learnings compound only when their frontmatter lets the next run find them. `audit` checks every file under `docs/solutions/` against the schema in effect for the repository (the CLI's defaults, which are the plugin's `skills/ce-compound/references/schema.yaml`, layered with the repository's own `compound.schema.fields`; see [docs/config.md](docs/config.md)), the parser-safety rules of `validate-frontmatter.py`, and the findability rules the optimization run showed matter most. It behaves like a linter: `--fix` repairs what needs no judgment and no key, and `--fix --jev` adds the fixers that ask the judge.
+
+```bash
+compound audit                        # report per file, exit 6 when a file fails
+compound audit --strict --json        # warnings fail too; the JSON contract for CI
+compound audit --fix --dry-run        # deterministic repairs as diffs, nothing written, no key
+compound audit --fix --yes            # apply them (off a TTY, --yes or --dry-run is required)
+compound audit --fix --jev --dry-run  # add the Jev fixers; needs TYPESAFE_API_KEY
+compound audit --packs                # also audit the rules and READMEs of declared packs (never fixed)
+compound audit --pack-dir packs       # pack-authoring mode: a repository of packs, each child a pack
+compound audit --stats                # field coverage, and README coverage per pack rule
+```
+
+Errors are schema and parser-safety violations; warnings are findability gaps. Exit 0 when no file has an error, 6 when one does (`--strict`, or `compound.audit.strict: true` in the config, makes warnings count), 3 for `--fix --jev` without a key, 4 with no corpus, 2 when the `compound:` block of the config has a problem.
+
+Every finding says where its rule came from: the text report appends `[rule from config.yaml]` when a layer set it, and the JSON carries `source` (`default`, `config.yaml`, or `config.local.yaml`), so a failing check traces to the line that made the rule.
+
+| Rule | Severity | Fixer |
+|---|---|---|
+| `frontmatter.missing`, `frontmatter.unterminated`, `frontmatter.invalid_yaml` | error | none (a hand) |
+| `frontmatter.unsafe_scalar` (unquoted `: `, ` #`, or a reserved first character) | error | deterministic: the full raw value is recovered and quoted |
+| `frontmatter.bare_literal` (`title: true`, `module: 123`, `tags: [inbox, null]`: a word YAML reads as null, a boolean, or a number) | error | deterministic: the raw word is put back as a string and written quoted |
+| `title.missing` | error | deterministic: the first H1 |
+| `title.weak` (placeholder, file slug, under three words) | warning | none |
+| `date.missing`, `date.invalid` | error | deterministic: the file's first commit, or a date in the file name, or the loosely written value |
+| `<field>.missing`, `<field>.invalid` for every enum and closed field (`problem_type`, `severity`, `resolution_type`, a repository's closed `component`, a custom `record_type`) | error | deterministic spelling (`Best Practice`, `ui-bug`), else Jev Choice over the values in effect |
+| `module.missing`, `component.missing`, bug track `root_cause.missing` | error | Jev Choice over the values this corpus already uses, then the repository's or the schema's suggested values |
+| `<field>.not_a_string`, `<field>.bug_track_only` (`rails_version` on a knowledge-track learning) | error | none |
+| bug track: `symptoms.missing` | error | extraction from the body, each sentence judged by Jev |
+| `applies_when.missing`, `applies_when.generic` (`always`, under four words, a restatement of the title) | warning (error when the repository requires it) | extraction from the body (headings, When and If sentences, failure phrasing, section leads), each judged by Jev at 0.7; at most 5 |
+| `<list>.too_many`, `<list>.item_too_long`, `<list>.empty_item`, `<list>.format` | warning | deterministic for tags; none otherwise |
+| `<list>.too_few`, `<list>.not_strings` | error | none |
+| `tags.missing` | warning (error when required) | Jev Nouls over the corpus's own tags (used by two or more files), at 0.6, at most 8 |
+| `<list>.not_a_list`, `list.duplicate` | error, warning | deterministic |
+| `pack.readme_missing`, `pack.no_rules`, `pack.readme_tag_missing` | error | none |
+
+Plain `--fix` is every deterministic fixer: the title from the first heading, the date, enum spelling, tag normalisation, scalars wrapped in lists, duplicates removed, the ` #` recovery, and bare literals quoted. A field only the judge could settle is listed as `needs_author` with the reason `needs the judge: run --fix --jev`. With `--jev`, the Jev fixers add `problem_type`, `severity`, `resolution_type`, `module`, `component`, `root_cause`, and any custom enum as a Choice over the values in effect for the repository; tags as judgments over the corpus's tags; `applies_when` and `symptoms` from sentences extracted from the body and judged one by one. The Jev choices see the document's title, frontmatter, and a 6,000-character excerpt, and how often this corpus uses each candidate value, so they follow the corpus's house style rather than a generic reading. Candidate values and sentences are data under the request state, never part of a question, so a learning cannot steer its own repair. When no candidate clears the bar, the field is marked `needs_author` with the reason. Bodies are never touched: the writer edits the frontmatter block through a YAML document model, keeps key order, comments, and a list's flow style, and reassembles the file with the original body bytes and line endings.
+
+How close the fixers get to hand-written frontmatter, measured leave-one-out (the file's own value never in the vocabulary offered) with `bench/scripts/audit-agreement.ts`. Deterministic-only (`--fix`) cannot supply a stripped value, so the agreement numbers are for `--fix --jev`; what deterministic-only does on a real corpus is in the PR that added it (files passing before and after, on Cora's 187 learnings). With Jev: on the plugin's 63 learnings, `problem_type` 61 percent exact (track 95 percent, majority-class baseline 45), `severity` 71 (baseline 65), `component` 41 (baseline 53; the labels are near-synonyms), `module` 12 (the corpus uses 44 distinct values across 63 files, so the right value is rarely on offer), tags 66 percent recall of the tags that were on offer at 29 percent precision, and 67 percent of extracted `applies_when` sentences judged as belonging on the author's list. On compound-packs' 167 hand-tuned rules, `module` 49 percent (baseline 6), tags 61 percent precision and 73 percent recall of reachable tags, and `applies_when` extraction found no situation sentence in 148 rules (decision records state decisions, not situations), so those stay `needs_author`. Treat categorical fixes as proposals to read in the diff; treat the deterministic fixes and the extracted sentences as safe.
+
+### Packs
+
+`--packs` audits the packs the repository declares in `packs:`: each rule with the pack-rule schema, each `README.md` with the pack-README schema (3 to 8 `applies_when` situations, the pack id among the tags, since `packs suggest` judges a pack from its README). Declared packs live in the shared cache, so `--fix` names the pack's own repository and writes nothing.
+
+`--pack-dir <dir>` (or `compound.audit.pack_dirs` in the config) is pack-authoring mode for a repository of packs such as compound-packs: every child directory of `<dir>` is a pack; a pack without a `README.md` is `pack.readme_missing`, one with a README and no rule file beside it is `pack.no_rules` (Compound Engineering would not publish it). These files are the repository's own, so `--fix` writes them.
+
+`--stats` adds what `validate_solutions_frontmatter.py --stats` and `validate-packs.py --coverage` printed: how many learnings carry `title`, `applies_when`, `symptoms`, and `tags` (the fields the grep path and the judge read), and per pack the rules that share under a quarter of their `applies_when` words with the README's title and situations, with the words the README lacks. Stats never change the exit code.
+
+In CI:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0   # the date fixer reads the file's first commit; a shallow clone has no history, and the fixer says so
+- uses: oven-sh/setup-bun@v2
+- run: bunx --bun github:kieranklaassen/compound-cli audit --strict --report audit.json
+```
+
+The exit code always describes the files on disk: `--fix --dry-run` and a declined prompt still exit 6 when the corpus fails, and `summary.after_fix` in the JSON says what a `--yes` run would leave. Exit 5 means the judge failed during `--fix --jev`; nothing is written then.
+
+`doctor` carries the audit counts too.
+
 ## doctor
 
 `doctor` reports whether the key is present (never its value), the resolved root and how it was resolved, the learning count, learnings missing `applies_when` or `date`, malformed frontmatter, declared packs with their rule counts and drift against their remote ref, and whether the known sources are reachable. It exits 0 when the report ran; `--strict` exits 3 when the key is missing.
@@ -199,7 +283,7 @@ The bench runs in CI without a key. `COMPOUND_CASSETTE_MODE=record` records ever
 
 | Variable | Purpose |
 |---|---|
-| `TYPESAFE_API_KEY` | Required by `find`, `packs suggest`, and `bench` |
+| `TYPESAFE_API_KEY` | Required by `find`, `packs suggest`, `bench`, and `audit --fix --jev` |
 | `COMPOUND_CASSETTE_MODE` | `off` (default), `record`, `replay`, or `auto` |
 | `COMPOUND_CASSETTE_DIR` | Where cassettes are written or read |
 | `CE_PACKS_CACHE_ROOT` | Override the git cache for pack sources |
@@ -207,19 +291,17 @@ The bench runs in CI without a key. `COMPOUND_CASSETTE_MODE=record` records ever
 
 A known source whose clone failed is not retried for an hour, so an unreachable source costs one timeout, not one per call; `compound packs suggest --refresh` retries now. Every command accepts `--debug` to print a stack trace on failure.
 
-The CLI reads `docs_root`, `packs`, and `pack_sources` from `.compound-engineering/config.yaml` and `config.local.yaml`. `docs_root` defaults to `docs`. `--root <dir>` overrides the repository root on every command. `--model` overrides the TypeSafe model (default `jev-latest`).
+The CLI reads `docs_root`, `packs`, and `pack_sources` from `.compound-engineering/config.yaml` and `config.local.yaml`, the files Compound Engineering already uses, local layered over shared. `docs_root` defaults to `docs`. Everything only the CLI reads sits under one `compound:` key in the same files: the repository's schema (`compound.schema.fields`: extend or replace an enum, close a vocabulary, add a field, change bounds, require or relax a field) and the audit's policy (`compound.audit`: `exclude`, `ignore`, `pack_dirs`, `strict`). The format is documented in [docs/config.md](docs/config.md). `--root <dir>` overrides the repository root on every command. `--model` overrides the TypeSafe model (default `jev-latest`).
 
 ## Calling it from a skill
 
 Pass the plan file when the work has one (`--plan docs/plans/...md`). On the Cora set the whole plan as the channel lifts macro recall about ten points over a title and summary at equal precision; a title alone loses another ten. The judge is only as good as the work context it is given.
 
-Pin the version so a plugin release never picks up an untested CLI change, check for the key, and fall back when the call fails to start or exits not configured. The CLI never becomes a hard dependency.
+The presence check is `command -v compound`, not `bunx`: `bunx` would fetch the CLI on first use, which is not opt-in. A skill never pins a CLI release; it checks the `schema_version` in the JSON it reads. When `compound` is absent, exits 3, or times out, the skill runs today's path and says so once. The CLI never becomes a hard dependency; repositories that run `compound audit` in their own CI are the ones that pin a version.
 
 ```bash
-if [ -n "$TYPESAFE_API_KEY" ] && command -v bunx >/dev/null 2>&1; then
-  # until the npm release: bunx --bun github:kieranklaassen/compound-cli find ...
-  # pin the version whose CHANGELOG matches the contract you read; 0.1.0 has the 0.5 yes/no score
-  timeout 30 bunx compound-cli@0.2.0 find "$ACTIVITY" --concept "$CONCEPT" ${PLAN_FILE:+--plan "$PLAN_FILE"} --json > "$RUN_DIR/recall.json"
+if command -v compound >/dev/null 2>&1 && [ -n "$TYPESAFE_API_KEY" ]; then
+  timeout 30 compound find "$ACTIVITY" --concept "$CONCEPT" ${PLAN_FILE:+--plan "$PLAN_FILE"} --json > "$RUN_DIR/recall.json"
   case $? in
     0) ;;                                  # consume recall.json; nothing_relevant is a valid answer
     *) rm -f "$RUN_DIR/recall.json" ;;     # fall back to the learnings-researcher path, say so once
@@ -227,7 +309,7 @@ if [ -n "$TYPESAFE_API_KEY" ] && command -v bunx >/dev/null 2>&1; then
 fi
 ```
 
-Exit 3 (not configured), a start failure, and a timeout all take the fallback. Exit 0 with `nothing_relevant: true` does not: it is the answer.
+Exit 3 (not configured), a start failure, and a timeout all take the fallback. Exit 0 with `nothing_relevant: true` does not: it is the answer. `compound packs resolve --json` and `compound audit` follow the same rule: present on `PATH`, or the plugin's own `packs-resolve.py` and `validate-frontmatter.py`.
 
 ## Development
 

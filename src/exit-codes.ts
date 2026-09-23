@@ -5,6 +5,7 @@ export const EXIT = {
   NOT_CONFIGURED: 3,
   MISSING_CORPUS: 4,
   JUDGE_FAILURE: 5,
+  FINDINGS: 6,
 } as const;
 
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
@@ -23,5 +24,10 @@ export const EXIT_CODE_DOCS: ReadonlyArray<{ code: ExitCode; name: string; meani
     code: EXIT.JUDGE_FAILURE,
     name: "judge-failure",
     meaning: "TypeSafe request failed after retries, or a cassette replay missed",
+  },
+  {
+    code: EXIT.FINDINGS,
+    name: "findings",
+    meaning: "audit found files that fail (errors, or warnings under --strict)",
   },
 ];

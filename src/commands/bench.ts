@@ -20,7 +20,7 @@ import {
   recallAtPrecisionFloor,
   scoreCase,
 } from "../bench/score.ts";
-import type { CeConfig } from "../config/ce-config.ts";
+import { type CeConfig, EMPTY_COMPOUND_CONFIG } from "../config/ce-config.ts";
 import type { Context } from "../context.ts";
 import { createGitCache } from "../corpus/git-cache.ts";
 import { loadCorpus, type Workspace } from "../corpus/load.ts";
@@ -254,6 +254,7 @@ function benchWorkspace(
     docsRootSource: "default",
     packs: [],
     packSources: [],
+    compound: EMPTY_COMPOUND_CONFIG,
     errors: [],
   };
   return { repoRoot, config, git };

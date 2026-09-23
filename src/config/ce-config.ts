@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isMap, isScalar, isSeq, LineCounter, type Node, parseDocument } from "yaml";
+import { DOCUMENT_KINDS, type DocumentKind, type FieldType } from "../audit/effective-schema.ts";
 import { UsageError } from "../errors.ts";
 
 export const CONFIG_DIR = ".compound-engineering";
@@ -27,6 +28,66 @@ export type PackSourceEntry = {
   label: string;
 };
 
+/**
+ * One field in `compound.schema.fields`: how this repository narrows, extends,
+ * or adds to the CLI's default schema. Attributes left out keep their default.
+ */
+export type FieldOverride = {
+  /** Custom fields only: what the field holds. */
+  type?: FieldType;
+  /** Enum, closed, or suggested values; `mode` says how they combine with the defaults. */
+  values?: string[];
+  /** `extend` adds to the default list (the default); `replace` uses only this list. */
+  mode?: "extend" | "replace";
+  /** Close an open field so only `values` pass. */
+  closed?: boolean;
+  /** true: a missing value is an error; false: the field is optional. */
+  required?: boolean;
+  minItems?: number;
+  maxItems?: number;
+  maxChars?: number;
+  /** Regex source a string value, or each list item, must match. */
+  pattern?: string;
+  /** Which document kinds the declaration applies to; learnings when left out. */
+  kinds?: DocumentKind[];
+};
+
+export type FieldDeclaration = {
+  name: string;
+  layer: ConfigFile;
+  /** `config.yaml:12`, used verbatim in errors. */
+  label: string;
+  override: FieldOverride;
+};
+
+/**
+ * Everything only the CLI reads, under one `compound:` key so it never collides
+ * with the plugin's own keys. `schema.fields` layers the repository's schema
+ * over the defaults; `audit` says what to leave out and how to run.
+ */
+export type CompoundConfig = {
+  /** In layer order: config.yaml's declarations, then config.local.yaml's. */
+  fields: FieldDeclaration[];
+  audit: {
+    /** Repo-relative files (or directories, with a trailing slash) under solutions/ that are not learnings. */
+    exclude: string[];
+    /** Rule ids dropped from the report. */
+    ignore: string[];
+    /** Repo-relative directories of packs to audit in pack-authoring mode (`--pack-dir`). */
+    packDirs: string[];
+    /** The default for `--strict` in this repository. */
+    strict: boolean;
+  };
+  /** Problems in the `compound:` block; the audit refuses to run with any. */
+  errors: string[];
+};
+
+export const EMPTY_COMPOUND_CONFIG: CompoundConfig = {
+  fields: [],
+  audit: { exclude: [], ignore: [], packDirs: [], strict: false },
+  errors: [],
+};
+
 export type CeConfig = {
   repoRoot: string;
   /** Repo-relative artifact root, `docs` by default. */
@@ -35,6 +96,7 @@ export type CeConfig = {
   docsRootSource: ConfigFile | "default";
   packs: PackEntry[];
   packSources: PackSourceEntry[];
+  compound: CompoundConfig;
   errors: string[];
 };
 
@@ -61,9 +123,15 @@ export function loadCeConfig(repoRoot: string): CeConfig {
 
   const packs: PackEntry[] = [];
   const packSources: PackSourceEntry[] = [];
+  const compound: CompoundConfig = {
+    fields: [],
+    audit: { exclude: [], ignore: [], packDirs: [], strict: false },
+    errors: [],
+  };
   for (const layer of layers) {
     packs.push(...readPackEntries(layer, errors));
     packSources.push(...readPackSources(layer, errors));
+    readCompoundConfig(layer, compound);
   }
   return {
     repoRoot,
@@ -72,6 +140,7 @@ export function loadCeConfig(repoRoot: string): CeConfig {
     docsRootSource: docsRootPick?.file ?? "default",
     packs,
     packSources,
+    compound,
     errors,
   };
 }
@@ -202,4 +271,219 @@ function label(layer: Layer, node: Node | undefined): string {
   const offset = node?.range?.[0];
   if (offset === undefined) return layer.file;
   return `${layer.file}:${layer.lines.linePos(offset).line}`;
+}
+
+const FIELD_TYPES: readonly FieldType[] = ["string", "enum", "list", "date"];
+const FIELD_KEYS = new Set([
+  "type",
+  "values",
+  "mode",
+  "closed",
+  "required",
+  "min_items",
+  "max_items",
+  "max_chars",
+  "pattern",
+  "kinds",
+]);
+const AUDIT_KEYS = new Set(["exclude", "ignore", "pack_dirs", "strict"]);
+
+/** Collect one layer's `compound:` block; the schema builder merges declarations across layers. */
+function readCompoundConfig(layer: Layer, out: CompoundConfig): void {
+  const node = layer.doc.get("compound", true) as Node | undefined;
+  if (node === undefined) return;
+  const fail = (at: Node | undefined, message: string) => {
+    out.errors.push(`${label(layer, at)}: ${message}`);
+  };
+  if (!isMap(node)) {
+    fail(node, "`compound:` must be a mapping");
+    return;
+  }
+  for (const pair of node.items) {
+    const key = keyOf(pair.key);
+    const value = pair.value as Node | undefined;
+    if (key === "schema") readSchema(layer, value, out, fail);
+    else if (key === "audit") readAudit(value, out, fail);
+    else fail(value, `unknown \`compound.${key}:\` (this release reads \`schema\` and \`audit\`)`);
+  }
+}
+
+type Fail = (at: Node | undefined, message: string) => void;
+
+function readSchema(layer: Layer, node: Node | undefined, out: CompoundConfig, fail: Fail): void {
+  if (!isMap(node)) {
+    fail(node, "`compound.schema:` must be a mapping");
+    return;
+  }
+  for (const pair of node.items) {
+    const key = keyOf(pair.key);
+    const value = pair.value as Node | undefined;
+    if (key !== "fields") {
+      fail(value, `\`compound.schema.${key}:\` is not read by this release (only \`fields\`)`);
+      continue;
+    }
+    if (!isMap(value)) {
+      fail(value, "`compound.schema.fields:` must be a mapping of field name to attributes");
+      continue;
+    }
+    for (const field of value.items) {
+      const name = keyOf(field.key);
+      const override = readFieldOverride(name, field.value as Node | undefined, fail);
+      if (override) {
+        out.fields.push({
+          name,
+          layer: layer.file,
+          label: label(layer, field.value as Node),
+          override,
+        });
+      }
+    }
+  }
+}
+
+function readFieldOverride(
+  name: string,
+  node: Node | undefined,
+  fail: Fail,
+): FieldOverride | undefined {
+  const at = `compound.schema.fields.${name}`;
+  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(name)) {
+    fail(node, `\`${at}\` is not a frontmatter key`);
+    return undefined;
+  }
+  if (!isMap(node)) {
+    fail(node, `\`${at}:\` must be a mapping of attributes (${[...FIELD_KEYS].join(", ")})`);
+    return undefined;
+  }
+  const override: FieldOverride = {};
+  let ok = true;
+  const bad = (value: Node | undefined, message: string) => {
+    fail(value, `\`${at}.${message}`);
+    ok = false;
+  };
+  for (const pair of node.items) {
+    const key = keyOf(pair.key);
+    const value = pair.value as Node | undefined;
+    if (!FIELD_KEYS.has(key)) {
+      bad(value, `${key}\` is not an attribute (${[...FIELD_KEYS].join(", ")})`);
+      continue;
+    }
+    switch (key) {
+      case "type": {
+        const text = scalarString(value);
+        if (text && (FIELD_TYPES as readonly string[]).includes(text))
+          override.type = text as FieldType;
+        else bad(value, `type\` must be one of ${FIELD_TYPES.join(", ")}`);
+        break;
+      }
+      case "values": {
+        const list = value === undefined ? null : stringList(value);
+        if (list?.length) override.values = list;
+        else bad(value, "values` must be a non-empty list of strings");
+        break;
+      }
+      case "mode": {
+        const text = scalarString(value);
+        if (text === "extend" || text === "replace") override.mode = text;
+        else bad(value, "mode` must be extend or replace");
+        break;
+      }
+      case "closed":
+      case "required": {
+        if (isScalar(value) && typeof value.value === "boolean") override[key] = value.value;
+        else bad(value, `${key}\` must be true or false`);
+        break;
+      }
+      case "min_items":
+      case "max_items":
+      case "max_chars": {
+        if (isScalar(value) && Number.isInteger(value.value) && (value.value as number) >= 1) {
+          const attribute =
+            key === "min_items" ? "minItems" : key === "max_items" ? "maxItems" : "maxChars";
+          override[attribute] = value.value as number;
+        } else bad(value, `${key}\` must be a positive integer`);
+        break;
+      }
+      case "pattern": {
+        const text = scalarString(value);
+        if (!text) {
+          bad(value, "pattern` must be a string");
+          break;
+        }
+        try {
+          new RegExp(text);
+          override.pattern = text;
+        } catch {
+          bad(value, "pattern` is not a valid regular expression");
+        }
+        break;
+      }
+      case "kinds": {
+        const list = value === undefined ? null : stringList(value);
+        if (list?.length && list.every((k) => (DOCUMENT_KINDS as readonly string[]).includes(k))) {
+          override.kinds = list as DocumentKind[];
+        } else bad(value, `kinds\` must list document kinds (${DOCUMENT_KINDS.join(", ")})`);
+        break;
+      }
+      default:
+        bad(value, `${key}\` is not an attribute`);
+    }
+  }
+  if (ok && override.mode !== undefined && override.values === undefined) {
+    bad(node, "mode` needs `values`");
+  }
+  return ok ? override : undefined;
+}
+
+function scalarString(node: Node | undefined): string | undefined {
+  return isScalar(node) && typeof node.value === "string" && node.value.trim()
+    ? node.value.trim()
+    : undefined;
+}
+
+function readAudit(node: Node | undefined, out: CompoundConfig, fail: Fail): void {
+  if (!isMap(node)) {
+    fail(node, "`compound.audit:` must be a mapping");
+    return;
+  }
+  for (const pair of node.items) {
+    const key = keyOf(pair.key);
+    const value = pair.value as Node | undefined;
+    if (!AUDIT_KEYS.has(key)) {
+      fail(
+        value,
+        `\`compound.audit.${key}:\` is not read by this release (${[...AUDIT_KEYS].join(", ")})`,
+      );
+    } else if (key === "strict") {
+      if (isScalar(value) && typeof value.value === "boolean") out.audit.strict = value.value;
+      else fail(value, "`compound.audit.strict` must be true or false");
+    } else {
+      const list = value === undefined ? null : stringList(value);
+      if (list === null) {
+        fail(value, `\`compound.audit.${key}:\` must be a list of strings`);
+        continue;
+      }
+      const target =
+        key === "pack_dirs"
+          ? out.audit.packDirs
+          : key === "exclude"
+            ? out.audit.exclude
+            : out.audit.ignore;
+      target.push(...list.filter((v) => !target.includes(v)));
+    }
+  }
+}
+
+function keyOf(key: unknown): string {
+  return isScalar(key) ? String(key.value) : String(key);
+}
+
+function stringList(node: Node): string[] | null {
+  if (!isSeq(node)) return null;
+  const out: string[] = [];
+  for (const item of node.items) {
+    if (!isScalar(item) || typeof item.value !== "string" || !item.value.trim()) return null;
+    out.push(item.value.trim());
+  }
+  return out;
 }
