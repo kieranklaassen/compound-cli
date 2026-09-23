@@ -231,6 +231,24 @@ describe("the effective schema", () => {
     expect(component?.sources.values).toBe("config.local.yaml");
   });
 
+  test("a declaration with an error changes nothing, and no build ever reaches the module defaults", () => {
+    const { schema, errors } = buildEffectiveSchema([
+      declare("applies_when", { minItems: 6, maxItems: 2 }),
+      declare("module", { closed: true }),
+      declare("problem_type", { values: ["prompt_regression"] }),
+    ]);
+    expect(errors).toHaveLength(2);
+    // The two bad declarations left their fields exactly as the defaults have them.
+    const appliesWhen = fieldOf(schema, "solution", "applies_when");
+    expect([appliesWhen?.minItems, appliesWhen?.maxItems]).toEqual([null, 5]);
+    expect(appliesWhen?.sources.maxItems).toBe("default");
+    expect(fieldOf(schema, "solution", "module")?.closed).toBe(false);
+    // The good one applied, to this build only.
+    expect(fieldOf(schema, "solution", "problem_type")?.values).toContain("prompt_regression");
+    expect(fieldOf(DEFAULT_SCHEMA, "solution", "problem_type")?.values).toEqual([...PROBLEM_TYPES]);
+    expect(buildEffectiveSchema([]).schema.solution).toEqual(DEFAULT_SCHEMA.solution);
+  });
+
   test("declarations that cannot mean anything are errors that name the line", () => {
     const root = tempRepo({
       ".compound-engineering/config.yaml": [

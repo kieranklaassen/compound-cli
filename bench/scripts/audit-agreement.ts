@@ -86,7 +86,11 @@ await Promise.all(
       const stripped: AuditedFile = { ...file, doc: splitDocument(rewriteFrontmatter(file.doc, removals).text) };
       const [audit] = await proposeFixes(
         [{ path: stripped.path, kind: stripped.kind, findings: runRules(stripped.doc, contextFor(stripped, corpus.options)) }],
-        { files: [stripped], vocabulary, options: corpus.options },
+        {
+          files: [stripped],
+          vocabularies: { solution: vocabulary, pack_rule: vocabulary, pack_readme: vocabulary },
+          options: corpus.options,
+        },
         judge,
       );
       const changes = new Map((audit?.fix?.changes ?? []).map((c) => [c.field, c.value]));

@@ -294,6 +294,101 @@ describe("compound audit: report only", () => {
     );
   });
 
+  test("a well-formed declaration that cannot mean anything is refused too, never run against a half-applied schema", async () => {
+    const clean = readFileSync(join(FIXTURE_CORPUS, "docs/solutions/clean.md"), "utf8");
+    const meaningless = tempRepo({
+      "docs/solutions/clean.md": clean,
+      ".compound-engineering/config.yaml":
+        "compound:\n  schema:\n    fields:\n      module:\n        closed: true\n      applies_when:\n        min_items: 6\n        max_items: 2\n",
+    });
+    const refused = await runCli(["audit", "--root", meaningless, "--json"], { env: noKey });
+    expect(refused.code).toBe(EXIT.USAGE);
+    expect(refused.stderr).toContain("`module` is closed but has no values");
+    expect(refused.stderr).toContain("`applies_when` has min_items above max_items");
+    expect(refused.stdout).toBe("");
+    const doctor = await runCli(["doctor", "--json", "--no-sources", "--root", meaningless], {
+      env: noKey,
+    });
+    expect(JSON.parse(doctor.stdout).audit.config_errors).toHaveLength(2);
+    expect(
+      (await runCli(["doctor", "--no-sources", "--root", meaningless], { env: noKey })).stdout,
+    ).toContain("config error:");
+  });
+
+  test("plain --fix names the judge for a closed enum spelling could not map, schema or custom", async () => {
+    const root = tempRepo({
+      "docs/solutions/odd.md": readFileSync(join(FIXTURE_CORPUS, "docs/solutions/clean.md"), "utf8")
+        .replace("problem_type: best_practice", "problem_type: bogus")
+        .replace("severity: medium", "severity: medium\nrecord_type: memo"),
+      ".compound-engineering/config.yaml":
+        "compound:\n  schema:\n    fields:\n      record_type:\n        type: enum\n        values: [decision, rule, observation]\n",
+    });
+    const result = await runCli(["audit", "--root", root, "--fix", "--dry-run", "--json"], {
+      env: noKey,
+    });
+    const file = JSON.parse(result.stdout).files[0];
+    expect(file.findings.map((f: { rule: string; fixer: string }) => [f.rule, f.fixer])).toEqual([
+      ["problem_type.invalid", "deterministic"],
+      ["record_type.invalid", "deterministic"],
+    ]);
+    expect(file.fix.changes).toEqual([]);
+    expect(file.fix.needs_author).toEqual([
+      { field: "problem_type", reason: "needs the judge: run --fix --jev (problem_type.invalid)" },
+      { field: "record_type", reason: "needs the judge: run --fix --jev (record_type.invalid)" },
+    ]);
+    // With the judge, the same file is settled from the values in effect.
+    const jev = await runCli(["audit", "--root", root, "--fix", "--jev", "--dry-run", "--json"], {
+      env: withJudge,
+    });
+    const fixed = JSON.parse(jev.stdout).files[0];
+    const picked = fixed.fix.changes.map((c: { field: string; value: string }) => [
+      c.field,
+      c.value,
+    ]);
+    // The fake judge takes the first option, which moves the file onto the bug track; the
+    // second round then fills that track's fields. The two enums came from the values in effect.
+    expect(picked).toContainEqual(["problem_type", "build_error"]);
+    expect(picked).toContainEqual(["record_type", "decision"]);
+    expect(fixed.fix.needs_author).toEqual([]);
+  });
+
+  test("--pack-dir --fix --jev chooses from the pack corpus's own values", async () => {
+    const root = tempRepo({
+      "packs/flags/README.md": packReadme("flags"),
+      "packs/flags/a.md": PACK_RULE,
+      "packs/flags/b.md": PACK_RULE.replace(
+        "Prefer plain flipper checks over wrappers",
+        "Name flags after the behaviour",
+      ),
+      "packs/flags/c.md": PACK_RULE.replace(
+        "Prefer plain flipper checks over wrappers",
+        "Remove a flag within a sprint of rollout",
+      ).replace("module: flags\n", ""),
+      // A second value, so module is a choice (one distinct value never is).
+      "packs/flags/d.md": PACK_RULE.replace(
+        "Prefer plain flipper checks over wrappers",
+        "Log every flag flip with the actor",
+      ).replace("module: flags", "module: rollout"),
+      ".compound-engineering/config.yaml": RECORD_TYPE_CONFIG,
+    });
+    const result = await runCli(
+      ["audit", "--root", root, "--pack-dir", "packs", "--fix", "--jev", "--dry-run", "--json"],
+      { env: withJudge },
+    );
+    const c = JSON.parse(result.stdout).files.find((f: { path: string }) =>
+      f.path.endsWith("c.md"),
+    );
+    expect(c.findings.map((f: { rule: string }) => f.rule)).toEqual(["module.missing"]);
+    expect(c.fix.changes).toEqual([
+      expect.objectContaining({
+        field: "module",
+        value: "flags",
+        note: "chosen among the corpus's values",
+      }),
+    ]);
+    expect(c.fix.needs_author).toEqual([]);
+  });
+
   test("doctor carries the audit counts", async () => {
     const result = await runCli(["doctor", "--json", "--no-sources", "--root", FIXTURE_CORPUS], {
       env: noKey,

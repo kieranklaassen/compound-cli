@@ -7,7 +7,7 @@ import { containedChildDirs, containedMdFiles, resolvePacks } from "../corpus/pa
 import { UsageError } from "../errors.ts";
 import { errorMessage } from "../util.ts";
 import { type SplitDocument, splitDocument } from "./document.ts";
-import { buildEffectiveSchema } from "./effective-schema.ts";
+import { buildEffectiveSchema, type EffectiveSchema } from "./effective-schema.ts";
 import type { FileAudit } from "./report.ts";
 import {
   applyPolicy,
@@ -47,13 +47,16 @@ export type AuditedPack = {
 export type AuditCorpus = {
   files: AuditedFile[];
   packs: AuditedPack[];
-  vocabulary: Vocabulary;
+  /** What each kind's corpus already says; a pack repository's fixers read the packs' own values. */
+  vocabularies: Record<DocumentKind, Vocabulary>;
   /** True when docs/solutions exists (even if empty). */
   hasSolutions: boolean;
   /** Repo-relative paths the config's `compound.audit.exclude` left out. */
   excluded: string[];
   config: CompoundConfig;
   options: RuleOptions;
+  /** Problems in the config's `compound:` block or its schema declarations; the audit refuses to run on any. */
+  configErrors: string[];
   warnings: string[];
 };
 
@@ -62,7 +65,15 @@ export type LoadOptions = {
   packs: boolean;
   /** Pack-authoring mode: directories of packs, each child a pack with a README and rules. */
   packDirs: string[];
+  /** An already built (and checked) schema; built from the config when absent. */
+  schema?: EffectiveSchema;
 };
+
+/** The repository's effective schema and every problem in its declarations. */
+export function schemaFor(config: CompoundConfig): { schema: EffectiveSchema; errors: string[] } {
+  const build = buildEffectiveSchema(config.fields);
+  return { schema: build.schema, errors: [...config.errors, ...build.errors] };
+}
 
 /** Read every learning (and, when asked, every pack) with the same boundary rules as find. */
 export function loadAuditCorpus(workspace: Workspace, load: LoadOptions): AuditCorpus {
@@ -71,14 +82,6 @@ export function loadAuditCorpus(workspace: Workspace, load: LoadOptions): AuditC
   const warnings: string[] = [];
   const excluded: string[] = [];
   const config = workspace.config.compound;
-  // A declaration that cannot mean anything (a closed field with no values, min_items
-  // above max_items) is a usage error: no corpus is checked against a broken schema.
-  const { schema, errors } = buildEffectiveSchema(config.fields);
-  if (errors.length) {
-    throw new UsageError(
-      `the compound: block of the config has problems:\n  ${errors.join("\n  ")}`,
-    );
-  }
   const solutionsDir = join(workspace.config.docsRootAbs, "solutions");
   let hasSolutions = false;
   try {
@@ -141,16 +144,23 @@ export function loadAuditCorpus(workspace: Workspace, load: LoadOptions): AuditC
     }
   }
 
+  const built = load.schema ? { schema: load.schema, errors: [] } : schemaFor(config);
+  const docsOf = (...kinds: DocumentKind[]) =>
+    files.filter((f) => kinds.includes(f.kind)).map((f) => f.doc);
   return {
     files,
     packs,
-    // The repository's own corpus: its learnings and the packs it authors. Declared
-    // packs live in the shared cache and say nothing about this repository's style.
-    vocabulary: buildVocabulary(files.filter((f) => f.writable).map((f) => f.doc)),
+    vocabularies: {
+      solution: buildVocabulary(docsOf("solution")),
+      pack_rule: buildVocabulary(docsOf("pack_rule")),
+      // A README's tags should echo its rules', so a README chooses among the whole pack's values.
+      pack_readme: buildVocabulary(docsOf("pack_rule", "pack_readme")),
+    },
     hasSolutions,
     excluded,
     config,
-    options: ruleOptions(config, schema),
+    options: ruleOptions(config, built.schema),
+    configErrors: built.errors,
     warnings,
   };
 }

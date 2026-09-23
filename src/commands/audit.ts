@@ -7,6 +7,7 @@ import {
   auditStats,
   contextFor,
   loadAuditCorpus,
+  schemaFor,
 } from "../audit/audit.ts";
 import { splitDocument } from "../audit/document.ts";
 import { deterministicFixes } from "../audit/fixers/deterministic.ts";
@@ -77,16 +78,23 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   }
 
   const workspace = openWorkspace(ctx.cwd, ctx.env, v.root);
-  if (workspace.config.compound.errors.length) {
+  // Shape errors from the reader and meaning errors from the schema build alike: a
+  // declaration that cannot mean anything must not run the corpus against a guessed schema.
+  const built = schemaFor(workspace.config.compound);
+  if (built.errors.length) {
     throw new UsageError(
-      `the compound: block of the config has problems:\n  ${workspace.config.compound.errors.join("\n  ")}`,
+      `the compound: block of the config has problems:\n  ${built.errors.join("\n  ")}`,
     );
   }
   const packDirs = [...(v["pack-dir"] ?? [])];
   for (const dir of workspace.config.compound.audit.packDirs) {
     if (!packDirs.includes(dir)) packDirs.push(dir);
   }
-  const corpus = loadAuditCorpus(workspace, { packs: Boolean(v.packs), packDirs });
+  const corpus = loadAuditCorpus(workspace, {
+    packs: Boolean(v.packs),
+    packDirs,
+    schema: built.schema,
+  });
   if (!corpus.hasSolutions && corpus.files.length === 0 && !packDirs.length) {
     throw new MissingCorpusError(workspace.config.docsRoot);
   }
@@ -152,7 +160,7 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
  */
 export async function proposeFixes(
   audits: FileAudit[],
-  corpus: Pick<AuditCorpus, "files" | "vocabulary" | "options">,
+  corpus: Pick<AuditCorpus, "files" | "vocabularies" | "options">,
   judge: Judge | null,
 ): Promise<FileAudit[]> {
   const byPath = new Map(corpus.files.map((s) => [s.path, s]));
@@ -188,12 +196,10 @@ export async function proposeFixes(
       });
       continue;
     }
-    const fields = corpus.options.schema[source.kind];
-    const spec = (name: string | null) => fields.find((s) => s.name === name);
     const changes: FieldChange[] = deterministicFixes(source.doc, audit.findings, {
       absPath: source.absPath,
       path: source.path,
-      fields,
+      fields: corpus.options.schema[source.kind],
     });
     const needsAuthor: NeedsAuthor[] = [];
     // Re-run the rules on the deterministically fixed text; Jev only sees what is left
@@ -207,7 +213,14 @@ export async function proposeFixes(
         (f) => f.fixable && !needsAuthor.some((n) => n.field === f.field),
       );
       if (!leftover.length) break;
-      const jev = await jevFixes(judge, current, source.path, leftover, corpus.vocabulary, fields);
+      const jev = await jevFixes(
+        judge,
+        current,
+        source.path,
+        leftover,
+        corpus.vocabularies[source.kind],
+        corpus.options.schema[source.kind],
+      );
       for (const change of jev.changes) {
         const index = changes.findIndex((c) => c.field === change.field);
         if (index >= 0) changes.splice(index, 1);
@@ -226,7 +239,9 @@ export async function proposeFixes(
     const rewritten = rewriteFrontmatter(source.doc, changes);
     const remaining = runRules(splitDocument(rewritten.text), context);
     // A fixable finding no fixer could settle is the author's, and the report says so.
-    // Without --jev, what only Jev could settle is named as such rather than as unfixable.
+    // Without --jev, what the judge could still settle (a closed enum spelling could not
+    // map, a missing vocabulary value) is named as such rather than as unfixable.
+    const fields = corpus.options.schema[source.kind];
     for (const f of remaining) {
       const field = f.field ?? "*";
       if (
@@ -234,10 +249,11 @@ export async function proposeFixes(
         !changes.some((c) => c.field === field) &&
         !needsAuthor.some((n) => n.field === field)
       ) {
+        const spec = fields.find((s) => s.name === f.field);
         needsAuthor.push({
           field,
           reason:
-            !judge && jevCanSettle(f.rule, spec(f.field))
+            !judge && jevCanSettle(f.rule, spec)
               ? `needs the judge: run --fix --jev (${f.rule})`
               : `no fixer could supply a value (${f.rule})`,
         });

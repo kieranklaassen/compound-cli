@@ -404,6 +404,25 @@ describe("jev fixers", () => {
     expect(Object.keys(asked.record_type?.criteria ?? {})).toEqual(["decision", "rule"]);
   });
 
+  test("the Jev list fixers cap at the field's effective max_items, not the schema constant", async () => {
+    const { schema } = buildEffectiveSchema([
+      { name: "tags", layer: "config.yaml", label: "config.yaml:1", override: { maxItems: 3 } },
+    ]);
+    const { doc, findings } = fixture("tags-missing.md");
+    const vocabulary = {
+      ...VOCABULARY,
+      tags: ["retry", "backoff", "sync", "http", "jobs", "queues"],
+    };
+    const judge = scriptedJudge(() => noulAnswer(0.95));
+    const tagsOf = (result: Awaited<ReturnType<typeof jevFixes>>) =>
+      result.changes.find((c) => c.field === "tags")?.value as string[] | undefined;
+    const capped = await jevFixes(judge, doc, "x.md", findings, vocabulary, schema.solution);
+    expect(tagsOf(capped)).toHaveLength(3);
+    // The schema's own cap still applies without an override.
+    const wide = await jevFixes(judge, doc, "x.md", findings, vocabulary);
+    expect(tagsOf(wide)).toHaveLength(6);
+  });
+
   test("a corpus with one module value is not a choice", async () => {
     const { doc, findings } = fixture("vocabulary-missing.md");
     const judge = scriptedJudge(() => choiceAnswer("low", 0.9));

@@ -62,8 +62,8 @@ export type EffectiveSchema = Record<DocumentKind, EffectiveField[]>;
 
 type Partial_ = Partial<FieldSpec> & { type: FieldType };
 
+// Every build gets its own arrays: an override must never reach the module-level defaults.
 const base = (spec: Partial_): FieldSpec => ({
-  values: [],
   closed: spec.type === "enum",
   required: "never",
   bugOnly: false,
@@ -72,6 +72,7 @@ const base = (spec: Partial_): FieldSpec => ({
   maxChars: null,
   pattern: null,
   ...spec,
+  values: [...(spec.values ?? [])],
 });
 
 const withSource = (name: string, spec: FieldSpec, source: Source): EffectiveField => ({
@@ -201,7 +202,8 @@ export type SchemaBuild = { schema: EffectiveSchema; errors: string[] };
 /**
  * Layer the repository's field declarations over the defaults. A declaration
  * without `kinds` applies to learnings. `values` extend the field's list unless
- * `mode: replace`; `type` is only for fields the defaults do not know.
+ * `mode: replace`; `type` is only for fields the defaults do not know. A
+ * declaration with an error changes nothing; the caller refuses to run on any.
  */
 export function buildEffectiveSchema(declarations: FieldDeclaration[]): SchemaBuild {
   const schema = defaults();
@@ -211,43 +213,54 @@ export function buildEffectiveSchema(declarations: FieldDeclaration[]): SchemaBu
     const kinds = override.kinds ?? ["solution"];
     for (const kind of kinds) {
       const fields = schema[kind];
-      let field = fields.find((f) => f.name === name);
-      if (!field) {
-        if (override.type === undefined) {
-          errors.push(
-            `${label}: \`${name}\` is not a ${kind} field the defaults know; a custom field needs \`type:\` (string, enum, list, date)`,
-          );
-          continue;
-        }
-        field = withSource(name, base({ type: override.type }), layer);
-        fields.push(field);
-      } else if (override.type !== undefined && override.type !== field.type) {
+      const existing = fields.find((f) => f.name === name);
+      if (!existing && override.type === undefined) {
         errors.push(
-          `${label}: \`${name}\` is a ${field.type} field; its type cannot be changed (drop \`type:\`)`,
+          `${label}: \`${name}\` is not a ${kind} field the defaults know; a custom field needs \`type:\` (string, enum, list, date)`,
         );
         continue;
       }
-      applyOverride(field, override, layer, label, errors);
+      if (existing && override.type !== undefined && override.type !== existing.type) {
+        errors.push(
+          `${label}: \`${name}\` is a ${existing.type} field; its type cannot be changed (drop \`type:\`)`,
+        );
+        continue;
+      }
+      const field = existing ?? withSource(name, base({ type: override.type as FieldType }), layer);
+      const next = applyOverride(field, override, layer, label, errors);
+      if (!next) continue;
+      if (existing) Object.assign(existing, next);
+      else fields.push(next);
     }
   }
   return { schema, errors };
 }
 
+/** The field with the override applied, or undefined (and an error) when it cannot mean anything. */
 function applyOverride(
-  field: EffectiveField,
+  current: EffectiveField,
   override: FieldDeclaration["override"],
   layer: ConfigFile,
   label: string,
   errors: string[],
-): void {
+): EffectiveField | undefined {
+  // Work on a copy: a declaration that turns out to be an error must leave the schema as it was.
+  const field: EffectiveField = {
+    ...current,
+    values: [...current.values],
+    sources: { ...current.sources },
+  };
+  const fail = (message: string): undefined => {
+    errors.push(`${label}: \`${field.name}\` ${message}`);
+    return undefined;
+  };
   const set = <A extends Attribute>(attribute: A, value: FieldSpec[A]) => {
     (field as FieldSpec)[attribute] = value;
     field.sources[attribute] = layer;
   };
   if (override.values !== undefined) {
     if (field.type === "list" || field.type === "date") {
-      errors.push(`${label}: \`${field.name}\` is a ${field.type} field and has no values list`);
-      return;
+      return fail(`is a ${field.type} field and has no values list`);
     }
     const merged =
       override.mode === "replace"
@@ -256,45 +269,30 @@ function applyOverride(
     set("values", merged);
   }
   if (override.closed !== undefined) {
-    if (field.type === "enum" && !override.closed) {
-      errors.push(`${label}: \`${field.name}\` is an enum; it cannot be opened`);
-      return;
-    }
+    if (field.type === "enum" && !override.closed) return fail("is an enum; it cannot be opened");
     if (field.type === "list" || field.type === "date") {
-      errors.push(
-        `${label}: \`${field.name}\` is a ${field.type} field; \`closed\` applies to values`,
-      );
-      return;
+      return fail(`is a ${field.type} field; \`closed\` applies to values`);
     }
     set("closed", override.closed);
   }
-  if (field.closed && field.values.length === 0) {
-    errors.push(`${label}: \`${field.name}\` is closed but has no values`);
-    return;
-  }
+  if (field.closed && field.values.length === 0) return fail("is closed but has no values");
   if (override.required !== undefined) set("required", override.required ? "always" : "never");
   for (const attribute of ["minItems", "maxItems", "maxChars"] as const) {
     const value = override[attribute];
     if (value === undefined) continue;
-    if (field.type !== "list") {
-      errors.push(`${label}: \`${field.name}\` is not a list; ${snake(attribute)} does not apply`);
-      return;
-    }
+    if (field.type !== "list") return fail(`is not a list; ${snake(attribute)} does not apply`);
     set(attribute, value);
   }
   if (field.minItems !== null && field.maxItems !== null && field.minItems > field.maxItems) {
-    errors.push(`${label}: \`${field.name}\` has min_items above max_items`);
-    return;
+    return fail("has min_items above max_items");
   }
   if (override.pattern !== undefined) {
     if (field.type === "enum" || field.type === "date") {
-      errors.push(
-        `${label}: \`${field.name}\` is ${field.type === "enum" ? "an enum" : "a date"}; a pattern does not apply`,
-      );
-      return;
+      return fail(`is ${field.type === "enum" ? "an enum" : "a date"}; a pattern does not apply`);
     }
     set("pattern", override.pattern);
   }
+  return field;
 }
 
 function snake(attribute: string): string {

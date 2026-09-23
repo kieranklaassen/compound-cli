@@ -40,6 +40,8 @@ export type DoctorReport = {
     errors: number;
     warnings: number;
     fixable: number;
+    /** Problems in the config's `compound:` block; `compound audit` refuses to run on any. */
+    config_errors: string[];
   };
   packs: {
     entries: number;
@@ -198,6 +200,7 @@ export function renderDoctor(report: DoctorReport): string {
   lines.push(
     `audit: ${a.files} files, ${a.files_failing} failing, ${a.errors} errors, ${a.warnings} warnings, ${a.fixable} fixable${a.files_failing ? " (run `compound audit` for the list, `compound audit --fix` to repair)" : ""}`,
   );
+  for (const error of a.config_errors) lines.push(`  config error: ${error}`);
   lines.push("");
   lines.push(
     `packs: ${report.packs.entries} ${report.packs.entries === 1 ? "entry" : "entries"}, ${report.packs.roots.length} resolved`,
@@ -232,5 +235,6 @@ function auditCounts(workspace: Workspace): DoctorReport["audit"] {
     errors: summary.errors,
     warnings: summary.warnings,
     fixable: summary.fixable,
+    config_errors: corpus.configErrors,
   };
 }

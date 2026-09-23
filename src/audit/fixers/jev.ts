@@ -81,12 +81,11 @@ export async function jevFixes(
   const changes: FieldChange[] = [];
   const needsAuthor: NeedsAuthor[] = [];
   const document = documentView(doc, path);
-  const tagPattern = new RegExp(
-    fields.find((f) => f.name === "tags")?.pattern ?? TAG_PATTERN.source,
-  );
-  /** A list the judge fills stays within the field's effective bound, not only the default. */
-  const maxItems = (name: string, fallback: number) =>
-    fields.find((f) => f.name === name)?.maxItems ?? fallback;
+  const spec = (name: string) => fields.find((f) => f.name === name);
+  const tagPattern = new RegExp(spec("tags")?.pattern ?? TAG_PATTERN.source);
+  // List caps come from the effective schema, so a repository that tightens max_items never
+  // gets a list from the judge that its own audit then flags as too_many.
+  const cap = (name: string, fallback: number) => spec(name)?.maxItems ?? fallback;
 
   // One Choice per value field the rules flagged, over the effective values: a closed
   // field's list (the schema's, or the repository's), else the corpus's own values,
@@ -249,7 +248,7 @@ export async function jevFixes(
       const ranked = scored(set);
       if (set.field === "tags") {
         const chosen = ranked.filter((r) => r.score >= THRESHOLDS.tag).map((r) => r.text);
-        const tags = [...existingTags, ...chosen].slice(0, maxItems("tags", LIMITS.tagsMax));
+        const tags = [...existingTags, ...chosen].slice(0, cap("tags", LIMITS.tagsMax));
         if (chosen.length) {
           changes.push({
             field: "tags",
@@ -267,7 +266,7 @@ export async function jevFixes(
       } else if (set.field === "applies_when") {
         const room = Math.max(
           0,
-          maxItems("applies_when", LIMITS.appliesWhenMax) - existingSituations.length,
+          cap("applies_when", LIMITS.appliesWhenMax) - existingSituations.length,
         );
         const chosen = ranked.filter((r) => r.score >= THRESHOLDS.situation).slice(0, room);
         if (chosen.length) {
@@ -295,7 +294,7 @@ export async function jevFixes(
       } else if (set.field === "symptoms") {
         const chosen = ranked
           .filter((r) => r.score >= THRESHOLDS.symptom)
-          .slice(0, maxItems("symptoms", LIMITS.symptomsMax));
+          .slice(0, cap("symptoms", LIMITS.symptomsMax));
         if (chosen.length) {
           changes.push({
             field: "symptoms",
