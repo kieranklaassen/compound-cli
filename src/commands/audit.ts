@@ -19,7 +19,7 @@ import {
   renderText,
   summarize,
 } from "../audit/report.ts";
-import { runRules } from "../audit/rules.ts";
+import { jevCanSettle, runRules } from "../audit/rules.ts";
 import { type FieldChange, rewriteFrontmatter, unifiedDiff } from "../audit/writer.ts";
 import type { Context } from "../context.ts";
 import { openWorkspace } from "../corpus/load.ts";
@@ -188,10 +188,12 @@ export async function proposeFixes(
       });
       continue;
     }
+    const fields = corpus.options.schema[source.kind];
+    const spec = (name: string | null) => fields.find((s) => s.name === name);
     const changes: FieldChange[] = deterministicFixes(source.doc, audit.findings, {
       absPath: source.absPath,
       path: source.path,
-      fields: corpus.options.schema[source.kind],
+      fields,
     });
     const needsAuthor: NeedsAuthor[] = [];
     // Re-run the rules on the deterministically fixed text; Jev only sees what is left
@@ -205,14 +207,7 @@ export async function proposeFixes(
         (f) => f.fixable && !needsAuthor.some((n) => n.field === f.field),
       );
       if (!leftover.length) break;
-      const jev = await jevFixes(
-        judge,
-        current,
-        source.path,
-        leftover,
-        corpus.vocabulary,
-        corpus.options.schema[source.kind],
-      );
+      const jev = await jevFixes(judge, current, source.path, leftover, corpus.vocabulary, fields);
       for (const change of jev.changes) {
         const index = changes.findIndex((c) => c.field === change.field);
         if (index >= 0) changes.splice(index, 1);
@@ -242,7 +237,7 @@ export async function proposeFixes(
         needsAuthor.push({
           field,
           reason:
-            !judge && f.fixer === "jev"
+            !judge && jevCanSettle(f.rule, spec(f.field))
               ? `needs the judge: run --fix --jev (${f.rule})`
               : `no fixer could supply a value (${f.rule})`,
         });

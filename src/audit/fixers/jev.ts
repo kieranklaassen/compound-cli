@@ -84,6 +84,9 @@ export async function jevFixes(
   const tagPattern = new RegExp(
     fields.find((f) => f.name === "tags")?.pattern ?? TAG_PATTERN.source,
   );
+  /** A list the judge fills stays within the field's effective bound, not only the default. */
+  const maxItems = (name: string, fallback: number) =>
+    fields.find((f) => f.name === name)?.maxItems ?? fallback;
 
   // One Choice per value field the rules flagged, over the effective values: a closed
   // field's list (the schema's, or the repository's), else the corpus's own values,
@@ -246,7 +249,7 @@ export async function jevFixes(
       const ranked = scored(set);
       if (set.field === "tags") {
         const chosen = ranked.filter((r) => r.score >= THRESHOLDS.tag).map((r) => r.text);
-        const tags = [...existingTags, ...chosen].slice(0, LIMITS.tagsMax);
+        const tags = [...existingTags, ...chosen].slice(0, maxItems("tags", LIMITS.tagsMax));
         if (chosen.length) {
           changes.push({
             field: "tags",
@@ -262,7 +265,10 @@ export async function jevFixes(
           });
         }
       } else if (set.field === "applies_when") {
-        const room = Math.max(0, LIMITS.appliesWhenMax - existingSituations.length);
+        const room = Math.max(
+          0,
+          maxItems("applies_when", LIMITS.appliesWhenMax) - existingSituations.length,
+        );
         const chosen = ranked.filter((r) => r.score >= THRESHOLDS.situation).slice(0, room);
         if (chosen.length) {
           changes.push({
@@ -289,7 +295,7 @@ export async function jevFixes(
       } else if (set.field === "symptoms") {
         const chosen = ranked
           .filter((r) => r.score >= THRESHOLDS.symptom)
-          .slice(0, LIMITS.symptomsMax);
+          .slice(0, maxItems("symptoms", LIMITS.symptomsMax));
         if (chosen.length) {
           changes.push({
             field: "symptoms",

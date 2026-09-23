@@ -68,6 +68,15 @@ export function fixerFor(rule: string, field: EffectiveField | undefined): Fixer
   return null;
 }
 
+/**
+ * Jev can settle the finding too: its own fixer, or a closed field's `.invalid`,
+ * where spelling comes first and the judge's Choice is the fallback.
+ */
+export function jevCanSettle(rule: string, field: EffectiveField | undefined): boolean {
+  if (fixerFor(rule, field) === "jev") return true;
+  return field?.closed === true && rule === `${field.name}.invalid`;
+}
+
 /** Fields whose values the corpus supplies when the schema lists none. */
 export function isCorpusVocabulary(name: string): boolean {
   return name === "module" || name === "component" || name === "root_cause";
@@ -165,7 +174,7 @@ export type RuleContext = {
   options?: RuleOptions;
 };
 
-/** Build the options from the config; the command checks `buildEffectiveSchema`'s errors first. */
+/** Build the options from the config; `loadAuditCorpus` refuses on `buildEffectiveSchema`'s errors first. */
 export function ruleOptions(
   config: CompoundConfig,
   schema: EffectiveSchema = buildEffectiveSchema(config.fields).schema,

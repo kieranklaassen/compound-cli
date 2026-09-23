@@ -7,6 +7,7 @@ import { containedChildDirs, containedMdFiles, resolvePacks } from "../corpus/pa
 import { UsageError } from "../errors.ts";
 import { errorMessage } from "../util.ts";
 import { type SplitDocument, splitDocument } from "./document.ts";
+import { buildEffectiveSchema } from "./effective-schema.ts";
 import type { FileAudit } from "./report.ts";
 import {
   applyPolicy,
@@ -70,6 +71,14 @@ export function loadAuditCorpus(workspace: Workspace, load: LoadOptions): AuditC
   const warnings: string[] = [];
   const excluded: string[] = [];
   const config = workspace.config.compound;
+  // A declaration that cannot mean anything (a closed field with no values, min_items
+  // above max_items) is a usage error: no corpus is checked against a broken schema.
+  const { schema, errors } = buildEffectiveSchema(config.fields);
+  if (errors.length) {
+    throw new UsageError(
+      `the compound: block of the config has problems:\n  ${errors.join("\n  ")}`,
+    );
+  }
   const solutionsDir = join(workspace.config.docsRootAbs, "solutions");
   let hasSolutions = false;
   try {
@@ -135,11 +144,13 @@ export function loadAuditCorpus(workspace: Workspace, load: LoadOptions): AuditC
   return {
     files,
     packs,
-    vocabulary: buildVocabulary(files.filter((f) => f.kind === "solution").map((f) => f.doc)),
+    // The repository's own corpus: its learnings and the packs it authors. Declared
+    // packs live in the shared cache and say nothing about this repository's style.
+    vocabulary: buildVocabulary(files.filter((f) => f.writable).map((f) => f.doc)),
     hasSolutions,
     excluded,
     config,
-    options: ruleOptions(config),
+    options: ruleOptions(config, schema),
     warnings,
   };
 }
