@@ -134,12 +134,20 @@ async function runCases(argv: string[], ctx: Context): Promise<number> {
   const wantedChannels = new Set<Channel>(
     [...kinds].map((k) => (k === "packs" || k === "suggest" ? "suggest" : "find")),
   );
-  const cases = all.filter(
+  const selected = all.filter(
     (c) =>
       (!wantedIds.size || wantedIds.has(c.id) || wantedIds.has(c.id.split("/").pop() ?? "")) &&
       (!wantedTags.size || c.tags.some((t) => wantedTags.has(t))) &&
       (!wantedChannels.size || c.channels.some((ch) => wantedChannels.has(ch))),
   );
+  // --kind selects a channel, not just the cases that have one: a dual-channel case
+  // runs, scores, and bills only the wanted channel.
+  const cases = wantedChannels.size
+    ? selected.map((c) => ({
+        ...c,
+        channels: c.channels.filter((ch) => wantedChannels.has(ch)),
+      }))
+    : selected;
   if (!cases.length) {
     throw new UsageError(
       all.length

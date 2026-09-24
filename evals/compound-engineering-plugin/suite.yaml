@@ -11,7 +11,7 @@ corpus:
 floors:
   macro_recall: 0.85
   negatives_correct: 1
-  precision_lower_bound: 0.2
+  precision_lower_bound: 0.25
 kinds:
   - solution
 # Shared with the deprecated `bench --cases` path for one release.

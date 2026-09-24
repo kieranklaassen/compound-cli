@@ -28,6 +28,13 @@ import {
   hasApiKey,
 } from "../judge/api-key.ts";
 import { judgeFromEnv } from "../judge/client.ts";
+import {
+  type Manifest,
+  readManifest,
+  thresholdPinFailure,
+  writeManifest,
+  writesManifest,
+} from "../judge/manifest.ts";
 import { Semaphore } from "../judge/semaphore.ts";
 import { round4 } from "../util.ts";
 import {
@@ -200,6 +207,12 @@ export function defaultMode(suites: SuiteConfig[], ctx: Context): EvalMode {
   return hasApiKey(ctx.env) ? "auto" : "replay";
 }
 
+/** The cassette directory a suite reads and writes in this mode, `undefined` when it uses none. */
+function suiteCassettes(suite: SuiteConfig, mode: EvalMode): string | undefined {
+  if (mode === "live" || suite.cassettes === null) return undefined;
+  return suite.cassettes;
+}
+
 function judgeEnv(ctx: Context, suite: SuiteConfig, mode: EvalMode): Context["env"] {
   const env = { ...ctx.env };
   if (mode === "live" || suite.cassettes === null) {
@@ -220,14 +233,33 @@ export async function runEval(
   ctx: Context,
 ): Promise<EvalReport> {
   const mode = options.mode ?? defaultMode(suites, ctx);
+  const cassetteMode: CassetteMode = mode === "live" ? "off" : mode;
   const warnings = new Set<string>();
   const git = createGitCache(ctx.env, { defaultTimeoutSeconds: CORPUS_CLONE_TIMEOUT_SECONDS });
   const corpora = new Map<string, ResolvedCorpus>();
   const scratch = mkdtempSync(join(tmpdir(), "compound-eval-"));
+  const inUse = [...new Set(cases.map((c) => c.suite))];
   // The key check comes before any corpus read: a live or recording run without a key
   // is exit 3, and a replay needs none.
-  for (const suite of new Set(cases.map((c) => c.suite))) {
+  for (const suite of inUse) {
     judgeFromEnv(judgeEnv(ctx, suite, mode), { model: options.settings.model });
+  }
+  // Recorded answers do not depend on the threshold, so a replay would stay green after
+  // a threshold change; each cassette directory's manifest pins what it was scored at.
+  const pins = new Map<string, Manifest | Error | undefined>();
+  const pinFailures: string[] = [];
+  for (const suite of inUse) {
+    const dir = suiteCassettes(suite, mode);
+    if (dir === undefined || pins.has(dir)) continue;
+    const manifest = readManifest(dir, cassetteMode);
+    pins.set(dir, manifest);
+    const failure = thresholdPinFailure(manifest, cassetteMode, options.settings.threshold);
+    if (failure) {
+      pinFailures.push(`${suite.name}: ${failure}`);
+      warnings.add(
+        `${suite.name}: ${failure} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
+      );
+    }
   }
   try {
     for (const evalCase of cases) {
@@ -291,6 +323,14 @@ export async function runEval(
       ),
     );
 
+    // auto leaves a pin behind for a fresh recording but never rewrites one: the pin
+    // records what the cassettes were scored at, not what this run used.
+    for (const [dir, manifest] of pins) {
+      if (writesManifest(cassetteMode, manifest)) {
+        writeManifest(dir, options.settings, total.model);
+      }
+    }
+
     const ran = results.filter((r) => r && r.result !== "SKIP");
     const byId = new Map(cases.map((c) => [c.id, c]));
     // Near misses are scored on their own: they never count as clear negatives.
@@ -306,13 +346,16 @@ export async function runEval(
       ? round4(nearMissCases.filter((r) => r.result === "PASS").length / nearMissCases.length)
       : null;
     const floors = mergedFloors(suites, cases);
-    const failures = evalFloorFailures(findAggregate, suggestAggregate, nearMissCorrect, floors);
+    const failures = [
+      ...evalFloorFailures(findAggregate, suggestAggregate, nearMissCorrect, floors),
+      ...pinFailures,
+    ];
     const usd = Number(total.estimated_usd.toFixed(8));
     return {
       schema_version: 1,
       mode: "eval",
       root: resolve(root),
-      cassette_mode: mode === "live" ? "off" : mode,
+      cassette_mode: cassetteMode,
       threshold: options.settings.threshold,
       suggest_threshold: options.suggestThreshold,
       cases: results,
