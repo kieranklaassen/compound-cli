@@ -31,13 +31,8 @@ import { runFind } from "../find/find.ts";
 import { BENCH_HELP } from "../help.ts";
 import { buildWorkState } from "../input/work-state.ts";
 import { CASSETTE_DIR_VARIABLE, cassetteMode } from "../judge/api-key.ts";
+import { readManifest, thresholdPinFailure, writeManifest } from "../judge/cassette-manifest.ts";
 import { judgeFromEnv } from "../judge/client.ts";
-import {
-  readManifest,
-  thresholdPinFailure,
-  writeManifest,
-  writesManifest,
-} from "../judge/manifest.ts";
 import { Semaphore } from "../judge/semaphore.ts";
 import { resolveJudgeSettings } from "./find-options.ts";
 
@@ -105,9 +100,8 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   const runs: CaseRun[] = [];
   const warnings = new Set<string>(corpus.warnings);
   const mode = cassetteMode(ctx.env);
-  const cassetteDir = ctx.env[CASSETTE_DIR_VARIABLE]?.trim();
-  const cassetteDirAbs = cassetteDir ? resolve(ctx.cwd, cassetteDir) : undefined;
-  const manifest = readManifest(cassetteDirAbs, mode);
+  const cassetteDir = cassetteDirOf(ctx);
+  const manifest = mode === "off" || !cassetteDir ? undefined : readManifest(cassetteDir);
   const pinFailure = thresholdPinFailure(manifest, mode, settings.threshold);
   if (pinFailure) {
     warnings.add(
@@ -208,8 +202,14 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   };
   // auto leaves a pin behind for a fresh recording but never rewrites one: the
   // pin records what the cassettes were scored at, not what this run used.
-  if (writesManifest(mode, manifest)) {
-    writeManifest(cassetteDirAbs, settings, report.model);
+  if (cassetteDir && (mode === "record" || (mode === "auto" && manifest === undefined))) {
+    writeManifest(cassetteDir, {
+      recorded_at: new Date().toISOString(),
+      threshold: settings.threshold,
+      tier_one_threshold: settings.tierOneThreshold,
+      model_requested: settings.model,
+      model_answered: report.model,
+    });
   }
 
   if (v.out) {
@@ -367,4 +367,9 @@ function renderMiss(score: CaseScore): string[] {
 
 function pct(value: number | null): string {
   return value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
+}
+
+function cassetteDirOf(ctx: Context): string | undefined {
+  const dir = ctx.env[CASSETTE_DIR_VARIABLE]?.trim();
+  return dir ? resolve(ctx.cwd, dir) : undefined;
 }

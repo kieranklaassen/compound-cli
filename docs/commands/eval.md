@@ -59,7 +59,7 @@ compound eval cases --live --max-cost-usd 2 --tag drift-sample
 compound eval cases --root ~/src/cora           # one checkout as every suite's corpus
 ```
 
-`--case <id>` (the directory name or its path under the root) and `--tag <tag>` select cases; `--kind find|packs` selects a channel. `--sweep` re-scores the find channel at other thresholds from the same judgments. `--max-cost-usd` stops starting cases once the run's estimated cost passes the cap; the rest are SKIP and `cost_cap.reached` is true, and floors are computed over what ran. `--json` and `--out` write the [report](../json-schema.md#eval---json).
+`--case <id>` (the directory name or its path under the root) and `--tag <tag>` select cases; `--kind find|packs` selects the cases that have that channel and runs only that channel on them. `--sweep` re-scores the find channel at other thresholds from the same judgments. `--max-cost-usd` stops starting cases once the run's estimated cost passes the cap; the rest are SKIP and `cost_cap.reached` is true, and floors are computed over what ran. `--json` and `--out` write the [report](../json-schema.md#eval---json).
 
 Scoring per case: a positive case scores its recall (hits found over hits expected, per channel, averaged when both ran) and passes at 1; a negative case passes when nothing surfaced; a near-miss item that surfaces fails the case whatever else happened; an expected path that is not in the corpus is a labeling error and fails the gate. Totals: find macro and micro recall, a precision lower bound (labels are positive-only), clear negatives correct, suggest macro recall and negatives, and the share of near-miss cases that held.
 
@@ -92,7 +92,7 @@ compound eval add --miss --out ../compound-evals/cases/cora --id miss-ruby-nativ
 
 ## Cassettes and modes
 
-A suite's `cassettes` directory holds Jev's answers keyed by request hash, never plan or learning text. `--replay` answers from them and needs no key (a request with no recording is exit 5); `--record` records every answer; `--live` ignores them; with no flag, a run replays when it has no key and runs in `auto` (replay what exists, record the rest) when it has one. Re-record after a change to question wording or the judge state; [gold sets and cassettes](../gold-sets.md) has the detail.
+A suite's `cassettes` directory holds Jev's answers keyed by request hash, never plan or learning text, plus a `manifest.json` pinning the thresholds they were scored at (recorded answers do not depend on the threshold, so a replay alone cannot notice a threshold change). `--replay` answers from them and needs no key (a request with no recording is exit 5); `--record` records every answer and writes the pin; `--live` ignores them; with no flag, a run replays when it has no key and runs in `auto` (replay what exists, record the rest, pin a fresh directory) when it has one. Under `--enforce-floor`, a replay at another threshold, or from a directory with no pin, fails the gate; without it, it is a warning. Re-record after a change to question wording or the judge state; [gold sets and cassettes](../gold-sets.md) has the detail.
 
 ## What is not here yet
 

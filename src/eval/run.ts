@@ -27,14 +27,8 @@ import {
   type CassetteMode,
   hasApiKey,
 } from "../judge/api-key.ts";
+import { readManifest, thresholdPinFailure, writeManifest } from "../judge/cassette-manifest.ts";
 import { judgeFromEnv } from "../judge/client.ts";
-import {
-  type Manifest,
-  readManifest,
-  thresholdPinFailure,
-  writeManifest,
-  writesManifest,
-} from "../judge/manifest.ts";
 import { Semaphore } from "../judge/semaphore.ts";
 import { round4 } from "../util.ts";
 import {
@@ -120,6 +114,8 @@ export type EvalReport = {
   suggest: SuggestAggregate | null;
   /** Share of near-miss items that stayed below the bar, over every case that names one. */
   near_miss_correct: number | null;
+  /** Per cassette directory: why its replay cannot be trusted at these thresholds (a gate failure). */
+  pin_failures: string[];
   f05: number | null;
   sweep: Aggregate[];
   floors: Floors;
@@ -207,12 +203,6 @@ export function defaultMode(suites: SuiteConfig[], ctx: Context): EvalMode {
   return hasApiKey(ctx.env) ? "auto" : "replay";
 }
 
-/** The cassette directory a suite reads and writes in this mode, `undefined` when it uses none. */
-function suiteCassettes(suite: SuiteConfig, mode: EvalMode): string | undefined {
-  if (mode === "live" || suite.cassettes === null) return undefined;
-  return suite.cassettes;
-}
-
 function judgeEnv(ctx: Context, suite: SuiteConfig, mode: EvalMode): Context["env"] {
   const env = { ...ctx.env };
   if (mode === "live" || suite.cassettes === null) {
@@ -233,32 +223,32 @@ export async function runEval(
   ctx: Context,
 ): Promise<EvalReport> {
   const mode = options.mode ?? defaultMode(suites, ctx);
-  const cassetteMode: CassetteMode = mode === "live" ? "off" : mode;
   const warnings = new Set<string>();
   const git = createGitCache(ctx.env, { defaultTimeoutSeconds: CORPUS_CLONE_TIMEOUT_SECONDS });
   const corpora = new Map<string, ResolvedCorpus>();
   const scratch = mkdtempSync(join(tmpdir(), "compound-eval-"));
-  const inUse = [...new Set(cases.map((c) => c.suite))];
   // The key check comes before any corpus read: a live or recording run without a key
   // is exit 3, and a replay needs none.
-  for (const suite of inUse) {
+  const suitesInPlay = [...new Set(cases.map((c) => c.suite))];
+  for (const suite of suitesInPlay) {
     judgeFromEnv(judgeEnv(ctx, suite, mode), { model: options.settings.model });
   }
-  // Recorded answers do not depend on the threshold, so a replay would stay green after
-  // a threshold change; each cassette directory's manifest pins what it was scored at.
-  const pins = new Map<string, Manifest | Error | undefined>();
+  // Recorded answers do not depend on the threshold; the manifest beside the cassettes
+  // pins what they were scored at, and a replay at another bar is a gate failure.
   const pinFailures: string[] = [];
-  for (const suite of inUse) {
-    const dir = suiteCassettes(suite, mode);
-    if (dir === undefined || pins.has(dir)) continue;
-    const manifest = readManifest(dir, cassetteMode);
-    pins.set(dir, manifest);
-    const failure = thresholdPinFailure(manifest, cassetteMode, options.settings.threshold);
-    if (failure) {
-      pinFailures.push(`${suite.name}: ${failure}`);
-      warnings.add(
-        `${suite.name}: ${failure} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
+  const cassetteDirs = new Map<string, ReturnType<typeof readManifest>>();
+  if (mode !== "live") {
+    for (const suite of suitesInPlay) {
+      if (suite.cassettes === null || cassetteDirs.has(suite.cassettes)) continue;
+      const manifest = readManifest(suite.cassettes);
+      cassetteDirs.set(suite.cassettes, manifest);
+      const failure = thresholdPinFailure(
+        manifest,
+        mode,
+        options.settings.threshold,
+        options.suggestThreshold,
       );
+      if (failure) pinFailures.push(`${suite.name}: ${failure}`);
     }
   }
   try {
@@ -323,14 +313,6 @@ export async function runEval(
       ),
     );
 
-    // auto leaves a pin behind for a fresh recording but never rewrites one: the pin
-    // records what the cassettes were scored at, not what this run used.
-    for (const [dir, manifest] of pins) {
-      if (writesManifest(cassetteMode, manifest)) {
-        writeManifest(dir, options.settings, total.model);
-      }
-    }
-
     const ran = results.filter((r) => r && r.result !== "SKIP");
     const byId = new Map(cases.map((c) => [c.id, c]));
     // Near misses are scored on their own: they never count as clear negatives.
@@ -348,14 +330,33 @@ export async function runEval(
     const floors = mergedFloors(suites, cases);
     const failures = [
       ...evalFloorFailures(findAggregate, suggestAggregate, nearMissCorrect, floors),
-      ...pinFailures,
+      ...pinFailures.map((f) => `cassette pin: ${f}`),
     ];
+    for (const failure of pinFailures) {
+      warnings.add(
+        `${failure} (recordings do not depend on the threshold, so the floor may not mean what it did)`,
+      );
+    }
+    // A recording leaves a pin behind; auto pins only a fresh directory, never rewriting one.
+    if (mode === "record" || mode === "auto") {
+      for (const [dir, manifest] of cassetteDirs) {
+        if (mode === "auto" && manifest !== undefined) continue;
+        writeManifest(dir, {
+          recorded_at: new Date().toISOString(),
+          threshold: options.settings.threshold,
+          tier_one_threshold: options.settings.tierOneThreshold,
+          suggest_threshold: options.suggestThreshold,
+          model_requested: options.settings.model,
+          model_answered: total.model,
+        });
+      }
+    }
     const usd = Number(total.estimated_usd.toFixed(8));
     return {
       schema_version: 1,
       mode: "eval",
       root: resolve(root),
-      cassette_mode: cassetteMode,
+      cassette_mode: mode === "live" ? "off" : mode,
       threshold: options.settings.threshold,
       suggest_threshold: options.suggestThreshold,
       cases: results,
@@ -365,6 +366,7 @@ export async function runEval(
       find: findAggregate,
       suggest: suggestAggregate,
       near_miss_correct: nearMissCorrect,
+      pin_failures: pinFailures,
       f05: findAggregate
         ? fBeta(findAggregate.precision_lower_bound, findAggregate.micro_recall)
         : null,

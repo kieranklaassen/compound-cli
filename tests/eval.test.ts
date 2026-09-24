@@ -1,6 +1,14 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { UsageError } from "../src/errors.ts";
 import { headSha, originUrl, writeMissCase } from "../src/eval/add.ts";
@@ -398,6 +406,102 @@ describe("compound eval", () => {
     expect(cappedReport.cases.filter((c: { result: string }) => c.result === "SKIP")).toHaveLength(
       2,
     );
+  });
+
+  test("the cassette pin: --record writes it with both thresholds, a replay at another bar fails the gate, and a missing pin fails a replay", async () => {
+    const root = tempDir("compound-cli-eval-pin-");
+    const cases = join(root, "cases");
+    mkdirSync(join(cases, "fixture", "one"), { recursive: true });
+    writeFileSync(
+      join(cases, "fixture", "one", "query.md"),
+      "Give the CLI a distinct exit code when nothing is found\n",
+    );
+    writeFileSync(
+      join(cases, "fixture", "one", "expect.yaml"),
+      "hits: [docs/solutions/cli/exit-codes-for-expected-empty-results.md]\n",
+    );
+    writeFileSync(
+      join(cases, "fixture", "suite.yaml"),
+      `corpus:\n  path: ${CORPUS}\ncassettes: ../../cassettes/fixture\nsuggest_threshold: 0.4\n`,
+    );
+    const recorded = await runCli(["eval", cases, "--record", "--json"], { env: withJudge });
+    expect(recorded.code).toBe(EXIT.OK);
+    const manifest = JSON.parse(
+      readFileSync(join(root, "cassettes", "fixture", "manifest.json"), "utf8"),
+    );
+    expect(manifest.threshold).toBe(0.6);
+    expect(manifest.suggest_threshold).toBe(0.4);
+    expect(manifest.model_requested).toBe("jev-latest");
+
+    const same = await runCli(["eval", cases, "--replay", "--enforce-floor", "--json"], {
+      env: noKey,
+    });
+    expect(same.code).toBe(EXIT.OK);
+    expect(JSON.parse(same.stdout).pin_failures).toEqual([]);
+    const moved = await runCli(
+      ["eval", cases, "--replay", "--enforce-floor", "--threshold", "0.5", "--json"],
+      {
+        env: noKey,
+      },
+    );
+    expect(moved.code).toBe(EXIT.FINDINGS);
+    expect(moved.stderr).toContain(
+      "cassette pin: fixture: threshold 0.5 differs from the recorded 0.6",
+    );
+    expect(JSON.parse(moved.stdout).pin_failures).toEqual([
+      "fixture: threshold 0.5 differs from the recorded 0.6",
+    ]);
+    const movedSuggest = await runCli(
+      ["eval", cases, "--replay", "--enforce-floor", "--suggest-threshold", "0.7", "--json"],
+      { env: noKey },
+    );
+    expect(movedSuggest.code).toBe(EXIT.FINDINGS);
+    expect(movedSuggest.stderr).toContain("suggest threshold 0.7 differs from the recorded 0.4");
+    // Without --enforce-floor the pin is a warning, not a failure.
+    const lenient = await runCli(["eval", cases, "--replay", "--threshold", "0.5"], { env: noKey });
+    expect(lenient.code).toBe(EXIT.OK);
+    expect(lenient.stdout).toContain("warning: fixture: threshold 0.5 differs");
+
+    const { root: importedRoot, cases: imported } = collection();
+    rmSync(join(importedRoot, "cassettes", "fixture", "manifest.json"));
+    const unpinned = await runCli(["eval", imported, "--replay", "--enforce-floor"], {
+      env: noKey,
+    });
+    expect(unpinned.code).toBe(EXIT.FINDINGS);
+    expect(unpinned.stderr).toContain("no manifest.json pinning the threshold");
+  });
+
+  test("--kind runs only that channel on the cases it selects", async () => {
+    const root = tempDir("compound-cli-eval-kind-");
+    const cases = join(root, "cases", "packs");
+    mkdirSync(join(cases, "both"), { recursive: true });
+    writeFileSync(
+      join(cases, "both", "query.md"),
+      "Split a large change into small pull requests for review\n",
+    );
+    writeFileSync(
+      join(cases, "both", "expect.yaml"),
+      "hits: [local-rules/prefer-small-prs.md]\npacks: [local-rules]\n",
+    );
+    writeFileSync(
+      join(cases, "suite.yaml"),
+      `corpus:\n  path: ${CORPUS}\nkinds: [pack_rule]\npacks_source: packs\nchannels: [find, suggest]\n`,
+    );
+    const only = await runCli(
+      ["eval", join(root, "cases"), "--live", "--kind", "packs", "--json"],
+      { env: withJudge },
+    );
+    const report = JSON.parse(only.stdout);
+    expect(report.cases[0].channels).toEqual(["suggest"]);
+    expect(report.cases[0].find).toBeNull();
+    expect(report.cases[0].suggest).not.toBeNull();
+    expect(report.find).toBeNull();
+    const findOnly = await runCli(
+      ["eval", join(root, "cases"), "--live", "--kind", "find", "--json"],
+      { env: withJudge },
+    );
+    expect(JSON.parse(findOnly.stdout).cases[0].suggest).toBeNull();
+    expect(JSON.parse(findOnly.stdout).cost.requests).toBeGreaterThan(report.cost.requests);
   });
 
   test("a repository of packs runs the find channel over pack rules and suggest from its own source, with near misses scored apart", async () => {

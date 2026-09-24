@@ -134,20 +134,19 @@ async function runCases(argv: string[], ctx: Context): Promise<number> {
   const wantedChannels = new Set<Channel>(
     [...kinds].map((k) => (k === "packs" || k === "suggest" ? "suggest" : "find")),
   );
-  const selected = all.filter(
-    (c) =>
-      (!wantedIds.size || wantedIds.has(c.id) || wantedIds.has(c.id.split("/").pop() ?? "")) &&
-      (!wantedTags.size || c.tags.some((t) => wantedTags.has(t))) &&
-      (!wantedChannels.size || c.channels.some((ch) => wantedChannels.has(ch))),
-  );
-  // --kind selects a channel, not just the cases that have one: a dual-channel case
-  // runs, scores, and bills only the wanted channel.
-  const cases = wantedChannels.size
-    ? selected.map((c) => ({
-        ...c,
-        channels: c.channels.filter((ch) => wantedChannels.has(ch)),
-      }))
-    : selected;
+  // --kind selects cases that have the channel and runs only that channel on them.
+  const cases = all
+    .filter(
+      (c) =>
+        (!wantedIds.size || wantedIds.has(c.id) || wantedIds.has(c.id.split("/").pop() ?? "")) &&
+        (!wantedTags.size || c.tags.some((t) => wantedTags.has(t))) &&
+        (!wantedChannels.size || c.channels.some((ch) => wantedChannels.has(ch))),
+    )
+    .map((c) =>
+      wantedChannels.size
+        ? { ...c, channels: c.channels.filter((ch) => wantedChannels.has(ch)) }
+        : c,
+    );
   if (!cases.length) {
     throw new UsageError(
       all.length
