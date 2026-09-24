@@ -63,6 +63,17 @@ compound audit: 187 files, 186 passing, 1 error, 0 warnings, 1 fixable, strict, 
 
 Exit 6. The rule id, the message, and the layer that set the rule are in the log; `--json` or `--report audit.json` gives the same as data for a bot to post. `--fix --dry-run` in the log shows the diffs a maintainer could apply.
 
+## Evals in CI
+
+A repository that keeps cases (the collection, or an `evals/` directory of its own) replays them on every pull request with no key:
+
+```yaml
+      - uses: oven-sh/setup-bun@v2
+      - run: bunx --bun github:kieranklaassen/compound-cli#<sha> eval cases/cora --replay --enforce-floor
+```
+
+When the cases pin a private corpus, the job checks that repository out first with a read token; the collection's matrix does this per corpus with a `CORPUS_READ_TOKEN` secret and passes the checkout with `--root`, or lets the CLI clone the pinned SHA through the pack cache with the token in the URL. A scheduled job runs a sample live with `--live --max-cost-usd 2` and a `TYPESAFE_API_KEY` secret, so Jev drift shows up as a failed floor rather than a surprise. See [cases, gold sets, and cassettes](gold-sets.md).
+
 ## This repository's own CI
 
-The `ci` workflow runs tests, typecheck, and lint, then `compound audit --strict` on this repository's two learnings, replays the public gold set from cassettes with `--enforce-floor`, and, when a `CORA_READ_TOKEN` secret is present, rebuilds Cora's held-out citation set at a recorded commit and replays it against its floors. Without the secret that job prints one line and skips. See [gold sets and cassettes](gold-sets.md).
+The `ci` workflow runs tests, typecheck, and lint, then `compound audit --strict` on this repository's two learnings, then `compound eval evals --replay --enforce-floor` over the smoke suite (ten of the plugin's cases, cassettes in the repository). All of it runs without a key. The full collections live in `kieranklaassen/compound-evals`.

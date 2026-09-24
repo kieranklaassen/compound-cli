@@ -283,7 +283,9 @@ describe("compound bench command", () => {
       ],
       { env },
     );
-    expect(result.stderr).toBe("");
+    // The deprecation line is the only thing on stderr.
+    expect(result.stderr.trim().split("\n")).toHaveLength(1);
+    expect(result.stderr).toContain("deprecated");
     expect(result.code).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.aggregate.macro_recall).toBe(1);

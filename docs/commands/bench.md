@@ -1,6 +1,8 @@
-# compound bench
+# compound bench (deprecated)
 
-> Run a gold set of work contexts and report recall, a precision lower bound, negatives, cost, and latency, so a change to judging is measured rather than felt.
+> The JSON form of the eval: run a cases file and report recall, a precision lower bound, negatives, cost, and latency.
+
+Deprecated in favour of [`compound eval`](eval.md), which reads a directory of cases pinned to corpus SHAs and covers the suggest channel and near misses too. `bench --cases` stays for one release and prints a deprecation line; convert a file with `compound eval import <file> --out evals/<name> --cassettes <dir>` and nothing is re-recorded.
 
 `bench` runs a cases file of work contexts with expected paths through `find` and scores the result. Labels are positive-only: a hit the file does not list is unjudged, not wrong, which is why precision is a lower bound. It needs a key live, and none when it replays from cassettes.
 

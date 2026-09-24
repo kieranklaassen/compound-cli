@@ -4,7 +4,16 @@ All notable changes to compound-cli. The format follows Keep a Changelog, and th
 
 ## Unreleased
 
+### Added
+
+- `compound eval [path]` runs a collection of cases: a tree of directories where `suite.yaml` pins a corpus (git and commit, or a path), floors, and cassettes for the cases below it, and each case is `query.md` (frontmatter for the channels, tags, a plan pointer with `redact_citations`, the activity as the body) plus `expect.yaml` (`hits`, `packs`, `near_miss`, `nothing_relevant`). It judges the find channel against the pinned checkout's own config and the suggest channel from the suite's pack source only, prints one row per case with PASS, FAIL, or SKIP, totals per channel, near misses scored apart from clear negatives, and the floors; `--case`, `--tag`, `--kind`, `--replay | --record | --live`, `--sweep`, `--enforce-floor` (exit 6), `--max-cost-usd`, `--jobs`, `--json`, `--out`. Without a key it replays; with one it replays what exists and records the rest.
+- `compound eval import <json> --out <dir>` converts the bench's JSON suites and compound-packs' findability cases into case directories and a `suite.yaml`, and copies cassettes as they are; `--plans-from` and `--plans-to` turn pointers at redacted plan copies into the originals with `redact_citations: true`, so the recorded answers still match (verified on Cora's held-out set: identical numbers, no re-recording).
+- `compound eval add --miss` writes a case from a real miss in the repository you are in, pinned to its origin (credentials stripped) and HEAD.
+- `evals/` holds a smoke suite of ten plugin cases with its cassettes; `bun run eval:ci` replays it and CI runs that instead of the bench.
+
 ### Changed
+
+- `compound bench --cases` is deprecated and stays for one release; it prints how to convert the file. The Cora held-out job and its 2,211 cassettes moved to the private cases collection `kieranklaassen/compound-evals`, whose CI pins this CLI by commit. `bench:heldout` is gone; `bench:ci` and `bench:record` read the moved plugin cassettes under `evals/cassettes/`.
 
 - The README is short: what the tool is, install, one line per command (shipped and planned), and the three snippets skills and CI paste. Everything else moved under `docs/`: a page per command, the JSON contract, exit codes, schema and configuration (`docs/config.md` became `docs/configuration.md`), CI setup, gold sets and cassettes, how judging works and what it costs, the results of the optimize runs, and development. The framing follows the compound-docs tooling design: an optional, supporting tool whose commands stand on their own; the plugin works without it; skills pick up better recall through `command -v compound`; repositories pin it in CI for `audit --strict`, the one place a repo-local script is replaced.
 

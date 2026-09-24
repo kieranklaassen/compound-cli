@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
   HELP_OPTION,
@@ -27,14 +27,13 @@ import { loadCorpus, type Workspace } from "../corpus/load.ts";
 import { CliError, MissingCorpusError, UsageError } from "../errors.ts";
 import { EXIT } from "../exit-codes.ts";
 import { NO_FILTERS } from "../find/filters.ts";
-import { type JudgeSettings, runFind } from "../find/find.ts";
+import { runFind } from "../find/find.ts";
 import { BENCH_HELP } from "../help.ts";
 import { buildWorkState } from "../input/work-state.ts";
-import { CASSETTE_DIR_VARIABLE, type CassetteMode, cassetteMode } from "../judge/api-key.ts";
-import { writeFileAtomically } from "../judge/cassette.ts";
+import { CASSETTE_DIR_VARIABLE, cassetteMode } from "../judge/api-key.ts";
+import { readManifest, thresholdPinFailure, writeManifest } from "../judge/cassette-manifest.ts";
 import { judgeFromEnv } from "../judge/client.ts";
 import { Semaphore } from "../judge/semaphore.ts";
-import { errorMessage } from "../util.ts";
 import { resolveJudgeSettings } from "./find-options.ts";
 
 const BENCH_OPTIONS = {
@@ -68,6 +67,9 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     return EXIT.OK;
   }
   if (!v.cases) throw new UsageError("bench requires --cases <file>");
+  ctx.stderr(
+    "compound bench --cases is deprecated and goes away next release: convert the file with `compound eval import <file> --out evals/<name>` and run `compound eval evals/<name>`\n",
+  );
   const casesPath = resolve(ctx.cwd, v.cases);
   const file = readCasesFile(casesPath);
   const settings = resolveJudgeSettings(v);
@@ -98,7 +100,8 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   const runs: CaseRun[] = [];
   const warnings = new Set<string>(corpus.warnings);
   const mode = cassetteMode(ctx.env);
-  const manifest = readManifest(ctx, mode);
+  const cassetteDir = cassetteDirOf(ctx);
+  const manifest = mode === "off" || !cassetteDir ? undefined : readManifest(cassetteDir);
   const pinFailure = thresholdPinFailure(manifest, mode, settings.threshold);
   if (pinFailure) {
     warnings.add(
@@ -199,8 +202,14 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
   };
   // auto leaves a pin behind for a fresh recording but never rewrites one: the
   // pin records what the cassettes were scored at, not what this run used.
-  if (mode === "record" || (mode === "auto" && manifest === undefined)) {
-    writeManifest(ctx, settings, report.model);
+  if (cassetteDir && (mode === "record" || (mode === "auto" && manifest === undefined))) {
+    writeManifest(cassetteDir, {
+      recorded_at: new Date().toISOString(),
+      threshold: settings.threshold,
+      tier_one_threshold: settings.tierOneThreshold,
+      model_requested: settings.model,
+      model_answered: report.model,
+    });
   }
 
   if (v.out) {
@@ -360,71 +369,7 @@ function pct(value: number | null): string {
   return value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
 }
 
-type Manifest = {
-  recorded_at: string;
-  threshold: number;
-  tier_one_threshold: number;
-  model_requested: string;
-  model_answered: string | null;
-};
-
-/**
- * Recorded answers do not depend on the threshold, so a replay would stay green
- * after a threshold change; the manifest pins the threshold the recording was
- * scored at so `--enforce-floor` can notice.
- */
-function manifestPath(ctx: Context): string | undefined {
+function cassetteDirOf(ctx: Context): string | undefined {
   const dir = ctx.env[CASSETTE_DIR_VARIABLE]?.trim();
-  return dir ? resolve(ctx.cwd, dir, "manifest.json") : undefined;
-}
-
-/**
- * A replay scores recorded answers, so only the pin makes a threshold change
- * visible: a pin that is missing is as unsound as one that disagrees. Auto
- * mode replays whatever it has, so a pin that disagrees is a failure there
- * too; a missing one is not, because the run writes it.
- */
-function thresholdPinFailure(
-  manifest: Manifest | Error | undefined,
-  mode: CassetteMode,
-  threshold: number,
-): string | undefined {
-  if (mode !== "replay" && mode !== "auto") return undefined;
-  if (manifest === undefined) {
-    return mode === "replay"
-      ? "the cassettes have no manifest.json pinning the threshold they were recorded at"
-      : undefined;
-  }
-  if (manifest instanceof Error) return `${manifest.message}; re-record the cassettes`;
-  if (manifest.threshold !== threshold)
-    return `threshold ${threshold} differs from the recorded ${manifest.threshold}`;
-  return undefined;
-}
-
-/** `undefined` when there is no manifest; `Error` when one exists but cannot be trusted. */
-function readManifest(ctx: Context, mode: string): Manifest | Error | undefined {
-  if (mode === "off") return undefined;
-  const path = manifestPath(ctx);
-  if (!path || !existsSync(path)) return undefined;
-  try {
-    const manifest = JSON.parse(readFileSync(path, "utf8")) as Partial<Manifest>;
-    if (typeof manifest.threshold !== "number") return new Error("manifest.json has no threshold");
-    return manifest as Manifest;
-  } catch (error) {
-    return new Error(`manifest.json is unreadable: ${errorMessage(error)}`);
-  }
-}
-
-function writeManifest(ctx: Context, settings: JudgeSettings, model: string | null): void {
-  const path = manifestPath(ctx);
-  if (!path) return;
-  const manifest: Manifest = {
-    recorded_at: new Date().toISOString(),
-    threshold: settings.threshold,
-    tier_one_threshold: settings.tierOneThreshold,
-    model_requested: settings.model,
-    model_answered: model,
-  };
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileAtomically(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  return dir ? resolve(ctx.cwd, dir) : undefined;
 }

@@ -10,7 +10,7 @@ The compound-engineering plugin works with plain grep and its own small helpers,
 - `compound audit --fix` repairs a corpus deterministically with no key; `--fix --jev` adds the judge for the fields that need one.
 - Skills get better recall when `compound` is on `PATH`: `compound find` judges every learning and pack rule against the work with calibrated scores, where the grep path shortlists by keyword. A skill checks `command -v compound` and falls back to grep when it is absent.
 - `compound packs resolve` gives a skill the same JSON the plugin's `packs-resolve.py` gives, from one implementation shared with `find`; `packs suggest` and `packs add` find packs a repository should adopt.
-- `compound bench` makes recall measurable, so a change to frontmatter or to judging is a number, not a feeling.
+- `compound eval` makes compounding measurable: a collection of cases, each a work context pinned to a corpus SHA with what should surface, so a change to frontmatter or to judging is a number, not a feeling.
 
 ## Install
 
@@ -34,10 +34,11 @@ export TYPESAFE_API_KEY=...
 | `compound audit [--strict] [--packs] [--pack-dir <dir>] [--stats]` | Validate learning and pack frontmatter against the schema in effect for the repository, with rule ids and the layer each rule came from |
 | `compound audit --fix [--jev] [--dry-run \| --yes]` | Repair frontmatter: deterministic fixes with no key, the judge's fixes with `--jev`; every change a diff, bodies never touched |
 | `compound packs resolve \| list \| suggest \| add` | Declared pack roots in the plugin's JSON shape, their rules, packs the repository should adopt, and the `packs:` entry that declares one |
-| `compound bench --cases <file>` | Run a gold set and report recall, a precision lower bound, negatives, cost, and latency; replays from cassettes in CI |
+| `compound eval [path]` | Run a collection of cases against pinned corpora: what should surface does, nothing surfaces when nothing applies; per-case rows, totals, floors; replays from cassettes in CI. `eval import` converts the old JSON suites, `eval add --miss` harvests a real miss |
+| `compound bench --cases <file>` | Deprecated for one release: the JSON form of the same measurement; `eval import` converts it |
 | `compound doctor` | The key, the corpus, declared packs and their drift, known sources, audit counts, config errors |
 
-Planned, per the compound-docs tooling design: `compound schema` (the effective schema and where each value came from), `audit <file>...`, `packs resolve --declared-only`, `bench build --from-citations` and `bench audit` (replacing the scripts under `bench/scripts/`), exit code 7 for an unreadable schema, and the npm release. Nothing here depends on them.
+Planned, per the compound-docs tooling design: `compound schema` (the effective schema and where each value came from), `audit <file>...`, `packs resolve --declared-only`, `eval --kind audit` (fix agreement suites), `eval anonymize` and `check-anonymized` for a public export, `bench build --from-citations` (the citation builder is still `bench/scripts/build-citation-gold.py`), exit code 7 for an unreadable schema, and the npm release. Nothing here depends on them.
 
 ## Copy and paste
 
@@ -69,7 +70,7 @@ compound packs resolve --json
 
 ## Documentation
 
-Start at [docs/README.md](docs/README.md). One page per command under [docs/commands](docs/commands/); the [JSON contract](docs/json-schema.md), [exit codes](docs/exit-codes.md), [schema and configuration](docs/configuration.md), [CI setup](docs/ci.md), [benches and gold sets](docs/gold-sets.md), [how judging works and what it costs](docs/judging.md), the [numbers from the optimize runs](docs/results.md), and [development](docs/development.md). Changes are in the [changelog](CHANGELOG.md).
+Start at [docs/README.md](docs/README.md). One page per command under [docs/commands](docs/commands/); the [JSON contract](docs/json-schema.md), [exit codes](docs/exit-codes.md), [schema and configuration](docs/configuration.md), [CI setup](docs/ci.md), [cases, gold sets, and cassettes](docs/gold-sets.md), [how judging works and what it costs](docs/judging.md), the [numbers from the optimize runs](docs/results.md), and [development](docs/development.md). Changes are in the [changelog](CHANGELOG.md).
 
 ## License
 

@@ -10,7 +10,7 @@ Every outcome a caller switches on keeps its own code. The table is `src/exit-co
 | 3 | not-configured | A command that judges ran without `TYPESAFE_API_KEY`: `find`, `packs suggest`, `bench` live, `audit --fix --jev`; also `doctor --strict` |
 | 4 | missing-corpus | No `<root>/solutions/` directory, no declared packs, and no `--pack-dir` |
 | 5 | judge-failure | TypeSafe failed after retries, or a cassette replay missed. During `audit --fix --jev` nothing is written |
-| 6 | findings | `audit` found files that fail: an error, or a warning under `--strict` |
+| 6 | findings | `audit` found files that fail: an error, or a warning under `--strict`; `eval --enforce-floor` found a floor that does not hold |
 
 Exit 1 also covers one environment case: running the `compound` bin from a git checkout under Node with no `dist/` build. The message says to use `bunx --bun` or `bun run build`.
 
@@ -20,4 +20,4 @@ Exit 3, a start failure, and a timeout take the fallback (the plugin's grep-firs
 
 ## Planned
 
-The compound-docs tooling design renames 6 to `check-failed` and extends it to a bench floor not met under `--enforce-floor` (which exits 1 today), and adds 7, `schema-unavailable`, for a pinned schema that cannot be read or a config whose schema declarations are invalid (exit 2 today). Both land with the schema loader.
+The compound-docs tooling design renames 6 to `check-failed` (`eval` already uses it for a failed floor; the deprecated `bench` still exits 1) and adds 7, `schema-unavailable`, for a pinned schema that cannot be read or a config whose schema declarations are invalid (exit 2 today). Both land with the schema loader.

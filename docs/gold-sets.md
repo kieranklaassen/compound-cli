@@ -1,39 +1,22 @@
-# Gold sets and cassettes
+# Cases, gold sets, and cassettes
 
-A gold set is a file of work contexts, each with the learnings or pack rules a person doing that work should have read. `compound bench` runs it and scores the result. Cassettes are recorded judge answers, so a gold set replays in CI without a key and without cost.
+A case is a work context, the corpus it runs against pinned to a commit, and what should surface (or that nothing should). A collection of cases is what `compound eval` runs. Cassettes are recorded judge answers, so a collection replays in CI without a key and without cost.
 
-## The cases file
+## The collection
 
-```json
-{
-  "name": "ce-plugin",
-  "description": "Where the cases came from and how they were written",
-  "corpus": { "git": "https://github.com/EveryInc/compound-engineering-plugin.git", "ref": "c152896...", "docs_root": "docs" },
-  "floor": { "macro_recall": 0.85, "negatives_correct": 1, "precision_lower_bound": 0.25 },
-  "cases": [
-    {
-      "id": "exit-code-for-expected-empty-result",
-      "query": { "activity": "Add a distinct exit code so a caller can tell an expected empty result from a real read failure" },
-      "expected": ["docs/solutions/agent-friendly-cli-principles.md"],
-      "note": "No applies_when on this learning; recall must come from title and tags."
-    },
-    {
-      "id": "neg-tls-certificate",
-      "query": { "activity": "Rotate the TLS certificate on the production load balancer before it expires" },
-      "expected": [],
-      "negative": true
-    }
-  ]
-}
-```
+Cases live away from their corpora, in one private repository, `kieranklaassen/compound-evals`, grouped by corpus: `cases/cora/`, `cases/baby-agent/`, `cases/compound-packs/`, `cases/compound-engineering-plugin/`, with `cassettes/<corpus>/` beside them. A `suite.yaml` per corpus pins the repository and SHA; each case is a directory with `query.md` and `expect.yaml`. The corpus is fetched at the SHA when the cases run, so no plan or learning text is copied into the collection; a case whose corpus pin moves is a different case. The format is on the [eval page](commands/eval.md#the-format). compound-cli keeps only a smoke suite under `evals/` (ten of the plugin's cases) for its own CI.
 
-`corpus` pins the checkout by git URL and commit; `bench` clones that commit through the pack cache, or `--root <checkout>` overrides it. A case's `query` carries any of `find`'s channels: `activity`, `concepts`, `decisions`, `domains`, `modules`, `paths`, a `plan` file (relative to the corpus root), or a `diff` file (relative to the cases file). `expected` lists paths as `find` reports them (repo-relative for learnings, `<pack-id>/<file>` for pack rules). `negative: true` expects `nothing_relevant`. `floor` holds the three gates `--enforce-floor` checks.
+The collection's CI is a matrix over `cases/<corpus>/`: each job checks out the pinned corpus with a read token and runs `compound eval cases/<corpus> --replay --enforce-floor` with no TypeSafe key; a scheduled job runs a sample live under `--max-cost-usd` to notice Jev drift. A public export (anonymized cases over a rewritten mirror corpus, `eval anonymize`, `check-anonymized`) is designed and deferred.
+
+## The JSON form, deprecated
+
+The bench's cases file (`name`, `corpus`, `floor`, `cases` of `{ id, query, expected, negative }`) is what `compound eval import` converts. `bench/cases/ce-plugin.json` stays for one release as the deprecated `bench --cases` input; its content is the plugin suite in the collection and the smoke suite under `evals/`.
 
 Write cases the way a skill would phrase the work, never as a learning's title or an `applies_when` line: a case that quotes the label measures nothing. Labels are positive-only, so an unlisted hit is unjudged rather than wrong, and precision is a lower bound.
 
 ## The public gold set
 
-`bench/cases/ce-plugin.json` is built from the Compound Engineering plugin's own learnings: 37 positive cases and 6 negative cases about work the corpus does not cover. Its cassettes are under `bench/fixtures/cassettes/ce-plugin` (315 files). `bun run bench:ci` replays it and enforces its floors; `bun run bench:record` re-records it after a change to question wording. The recorded numbers are in [results](results.md#the-public-gold-set).
+The Compound Engineering plugin's own learnings: 37 positive cases and 6 negative cases about work the corpus does not cover, pinned at plugin commit `c152896`. All 43 are `cases/compound-engineering-plugin/` in the collection; ten of them are the smoke suite under `evals/compound-engineering-plugin/` here, replayed from `evals/cassettes/compound-engineering-plugin` (315 files) by `bun run eval:ci`. The recorded numbers are in [results](results.md#the-public-gold-set).
 
 ## Citation gold sets from a repository's plans
 
@@ -46,14 +29,14 @@ compound bench --cases ~/src/cora/bench/cases/dev.json --root ~/src/cora --jobs 
 
 The Cora set never leaves a Cora checkout: 216 plans citing 468 learnings, split into a dev set (133 plans, 307 pairs) and a held-out set (83 plans, 161 pairs). The held-out set is measured at the start and end of a run only, so it stays honest.
 
-`compound bench build --from-citations` is the planned replacement for the script.
+The builder's JSON output becomes pointer cases with `compound eval import <split>.json --out cases/cora --plans-from bench/plans --plans-to docs/plans --corpus-git <url> --corpus-ref <sha>`: each case points at the original plan with `redact_citations: true`, the judge reads the same redacted text at run time, and the recorded cassettes still match. `compound bench build --from-citations` is the planned replacement for the script itself.
 
-## The held-out replay in CI
+## The held-out replay
 
-The `bench-heldout` job clones Cora at the commit the cassettes were recorded against (a `CORA_READ_TOKEN` repository secret with read access; without it the job says so and skips), rebuilds the cases with the same script, and replays `bench/fixtures/cassettes/cora-heldout/` with `--enforce-floor` (macro recall at least 0.55, precision lower bound at least 0.08, negatives at 100 percent; the recorded live values are 62.5, 10.5, and 100). Those 2,211 cassettes hold only answers (probabilities, the rubric legend, section tags), no plan or learning text. `CORA_ROOT=~/src/cora bun run bench:heldout` does the same locally. Re-record with `COMPOUND_CASSETTE_MODE=record` after a change to question wording or the judge state, then bump `CORA_COMMIT` in the workflow if Cora moved.
+Cora's held-out split (83 plans, 161 pairs, 3 synthetic negatives) is `cases/cora/` tagged `heldout` in the collection, with its 2,211 answer-only cassettes moved from this repository; the floors are macro recall at least 0.55, precision lower bound at least 0.08, negatives at 100 percent (recorded live: 62.5, 10.5, 100). The collection's CI replays it; the job that did so here is gone with the cassettes.
 
 ## Cassettes
 
 `COMPOUND_CASSETTE_MODE=record` records every TypeSafe response under `COMPOUND_CASSETTE_DIR`, one file per request keyed by a hash of the request body; `replay` answers from those files and never touches the network (a miss is exit 5); `auto` replays a recording when one exists and records a live answer when it does not, which is what an optimization loop wants: unchanged requests stay deterministic and free, only new wording costs money. A cassette holds the request hash, the response status and body, and a little metadata, never headers or the key. Recorded answers do not depend on the threshold, so a replay alone cannot notice a threshold change; the cassette directory carries a threshold pin and `--enforce-floor` checks it.
 
-Tests use the same mechanism from `tests/fixtures/cassettes/`; see [development](development.md).
+Under `compound eval`, a suite names its cassette directory in `suite.yaml` and the flags choose the mode: `--replay`, `--record`, `--live`, or the default (replay without a key, auto with one). The `manifest.json` pin beside the cassettes carries both the hit threshold and the suggest threshold, and `--enforce-floor` refuses a replay that disagrees with it. Tests use the same mechanism from `tests/fixtures/cassettes/`; see [development](development.md).

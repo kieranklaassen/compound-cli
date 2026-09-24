@@ -72,13 +72,30 @@ export function loadPackCandidates(
   env: Env,
   policy: FetchPolicy = "cached-or-clone",
 ): CandidateLoad {
+  return loadPackCandidatesFrom(
+    knownSources(config, env),
+    config.repoRoot,
+    declaredIds,
+    env,
+    policy,
+  );
+}
+
+/** The same, over an explicit source list (an eval suite judges only the source it pins). */
+export function loadPackCandidatesFrom(
+  sources: KnownSource[],
+  repoRoot: string,
+  declaredIds: ReadonlySet<string>,
+  env: Env,
+  policy: FetchPolicy = "cached-or-clone",
+): CandidateLoad {
   const git = createGitCache(env, { defaultTimeoutSeconds: KNOWN_SOURCE_TIMEOUT_SECONDS });
   const home = homeDir(env);
   const candidates: Candidate[] = [];
   const warnings: string[] = [];
   const seen = new Set<string>();
-  for (const source of knownSources(config, env)) {
-    const located = locate(source, config.repoRoot, home, git, policy, warnings);
+  for (const source of sources) {
+    const located = locate(source, repoRoot, home, git, policy, warnings);
     if (!located) continue;
     const { dir, boundary } = located;
     for (const [id, packDir] of enumeratePacks(dir, boundary, [])) {

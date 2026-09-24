@@ -1,0 +1,19 @@
+name: compound-engineering-plugin
+description: >-
+  Smoke suite over the Compound Engineering plugin's own learnings: ten of the
+  public gold set's forty-three cases (eight positives, two negatives), enough
+  to catch a judging regression on every push. The full set lives in the
+  private cases collection, kieranklaassen/compound-evals. The floors are the
+  public gold set's.
+corpus:
+  git: https://github.com/EveryInc/compound-engineering-plugin.git
+  ref: c152896f1cda13548fc1a05b2aff88caf8ae8dba
+  docs_root: docs
+floors:
+  macro_recall: 0.85
+  negatives_correct: 1
+  precision_lower_bound: 0.25
+kinds:
+  - solution
+# Shared with the deprecated `bench --cases` path for one release.
+cassettes: ../cassettes/compound-engineering-plugin
